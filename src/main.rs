@@ -264,6 +264,80 @@ async fn run_proxy(endpoint: String) -> Result<()> {
     Ok(())
 }
 
+async fn parse_response(resp: reqwest::Response) -> Result<Value> {
+    let content_type = resp
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    if content_type.contains("application/json") {
+        return resp
+            .json::<Value>()
+            .await
+            .context("Failed to parse JSON response");
+    }
+
+    if content_type.contains("text/event-stream") {
+        use tokio_stream::StreamExt as _;
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("Stream error while reading SSE")?;
+            buf.push_str(&String::from_utf8_lossy(&chunk));
+
+            // Process complete SSE events (separated by blank lines)
+            while let Some(pos) = buf.find("\n\n") {
+                let event_block = buf[..pos].to_string();
+                buf = buf[pos + 2..].to_string();
+
+                let mut event_type = String::new();
+                let mut data_lines = Vec::new();
+
+                for line in event_block.lines() {
+                    if let Some(val) = line.strip_prefix("event:") {
+                        event_type = val.trim().to_string();
+                    } else if let Some(val) = line.strip_prefix("data:") {
+                        data_lines.push(val.trim_start_matches(' ').to_string());
+                    }
+                }
+
+                if event_type == "message" && !data_lines.is_empty() {
+                    let data = data_lines.join("\n");
+                    return serde_json::from_str(&data)
+                        .context("Failed to parse SSE message data as JSON");
+                }
+            }
+        }
+
+        // Process any remaining data in the buffer
+        if !buf.trim().is_empty() {
+            let mut event_type = String::new();
+            let mut data_lines = Vec::new();
+
+            for line in buf.lines() {
+                if let Some(val) = line.strip_prefix("event:") {
+                    event_type = val.trim().to_string();
+                } else if let Some(val) = line.strip_prefix("data:") {
+                    data_lines.push(val.trim_start_matches(' ').to_string());
+                }
+            }
+
+            if event_type == "message" && !data_lines.is_empty() {
+                let data = data_lines.join("\n");
+                return serde_json::from_str(&data)
+                    .context("Failed to parse SSE message data as JSON");
+            }
+        }
+
+        return Err(anyhow!("No message event found in SSE stream"));
+    }
+
+    Err(anyhow!("Unexpected Content-Type: {}", content_type))
+}
+
 fn inject_token(msg: &mut Value, token: &str) {
     if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
         // Only inject for tool calls
@@ -437,9 +511,8 @@ async fn create_account_and_authenticate(
             }
         }))
         .send()
-        .await?
-        .json::<Value>()
         .await?;
+    let resp = parse_response(resp).await?;
 
     let content = resp
         .get("result")
@@ -472,9 +545,8 @@ async fn create_account_and_authenticate(
             }
         }))
         .send()
-        .await?
-        .json::<Value>()
         .await?;
+    let resp = parse_response(resp).await?;
 
     let content = resp
         .get("result")
