@@ -1,0 +1,15 @@
+{
+  "name": "@inboxapi/cli-linux-arm64",
+  "version": "0.0.0",
+  "description": "InboxAPI CLI binary for Linux ARM64",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "main": "inboxapi-cli",
+  "files": ["inboxapi-cli"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shaond/inboxapi-cli.git"
+  },
+  "preferUnplugged": true
+}
