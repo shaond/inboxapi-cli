@@ -6,6 +6,7 @@
   "bin": {
     "inboxapi": "index.js"
   },
+  "files": ["index.js"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/shaond/inboxapi-cli.git"
@@ -19,9 +20,15 @@
   ],
   "author": "Shaon Diwakar",
   "license": "MIT",
-  "dependencies": {},
   "scripts": {
     "build": "cargo build --release",
     "test": "cargo test"
+  },
+  "optionalDependencies": {
+    "@inboxapi/cli-darwin-arm64": "0.1.0",
+    "@inboxapi/cli-darwin-x64": "0.1.0",
+    "@inboxapi/cli-linux-x64": "0.1.0",
+    "@inboxapi/cli-linux-arm64": "0.1.0",
+    "@inboxapi/cli-win32-x64": "0.1.0"
   }
 }

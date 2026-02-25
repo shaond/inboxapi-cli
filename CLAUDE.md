@@ -1,31 +1,39 @@
-# InboxAPI CLI - Claude/AI Agent Context
+# InboxAPI CLI
 
-## Project Overview
-A Rust-based STDIO proxy for the InboxAPI MCP service. It allows AI tools (like Claude Desktop/Code) that speak JSON-RPC over STDIO to communicate with the remote InboxAPI MCP service hosted over SSE/HTTP.
+## Overview
+Rust-based STDIO proxy that bridges JSON-RPC (MCP protocol) over STDIO to the remote InboxAPI MCP service over Streamable HTTP/SSE. Distributed via npm as `@inboxapi/cli`.
 
-## Development Commands
-- `cargo build`: Build the project
-- `cargo run -- login`: Log in to the service
-- `cargo run -- proxy`: Start the STDIO proxy (default)
+## Commands
+- `cargo build` — build the Rust binary
+- `cargo test` — run tests
+- `cargo run -- proxy` — start the STDIO proxy (default)
+- `cargo run -- login` — authenticate and store credentials
+- `cargo run -- whoami` — show current account info
 
 ## Architecture
-- **Transport**: Bridges STDIO (stdin/stdout) to remote SSE (Server-Sent Events) and POST requests.
-- **Authentication**: Automatically injects access tokens from the OS config directory (e.g., `~/.config/inboxapi/credentials.json` on Linux) into tool calls.
-- **Onboarding**: Includes a `login` command that handles Hashcash proof-of-work and token exchange.
+- **Single-file proxy** (`src/main.rs`): reads JSON-RPC from stdin, POSTs to remote endpoint, streams SSE responses to stdout. Injects stored access tokens into `tools/call` arguments.
+- **npm wrapper** (`index.js`): resolves the platform-specific binary from `@inboxapi/cli-<os>-<arch>` optional dependencies, falls back to local `target/` builds or `cargo run`.
+- **CI** (`.github/workflows/release.yml`): builds 5 platform binaries on tag push, creates GitHub Release, publishes platform + root npm packages.
+
+## npm Distribution
+```
+@inboxapi/cli              — root package (index.js wrapper + optionalDependencies)
+@inboxapi/cli-darwin-arm64 — macOS ARM64 binary
+@inboxapi/cli-darwin-x64   — macOS x64 binary
+@inboxapi/cli-linux-x64    — Linux x64 binary
+@inboxapi/cli-linux-arm64  — Linux ARM64 binary
+@inboxapi/cli-win32-x64    — Windows x64 binary
+```
 
 ## Key Files
-- `src/main.rs`: Core proxy and login logic.
-- `Cargo.toml`: Project dependencies.
+- `src/main.rs` — proxy logic, token injection, login flow, hashcash PoW
+- `index.js` — npm binary resolver (platform package → local build → cargo run)
+- `package.json` — root npm package with optionalDependencies
+- `npm/cli-*/package.json` — platform-specific npm package manifests
+- `.github/workflows/release.yml` — cross-build + GitHub Release + npm publish
+- `Cargo.toml` — Rust dependencies
 
-## Usage for AI Tools
-To use this with Claude Desktop, add to `claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "inboxapi": {
-      "command": "path/to/inboxapi-cli",
-      "args": ["proxy"]
-    }
-  }
-}
-```
+## Rules
+- Do not add AI attribution to commits, code, or comments
+- Run `cargo fmt` before committing Rust changes
+- Use conventional commits (`feat:`, `fix:`, `chore:`, etc.)
