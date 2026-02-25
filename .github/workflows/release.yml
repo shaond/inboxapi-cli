@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build:
+    name: Build - ${{ matrix.platform.os-name }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      matrix:
+        platform:
+          - os-name: Linux-x86_64
+            os: ubuntu-20.04
+            target: x86_64-unknown-linux-gnu
+            name: inboxapi-cli-linux-x64
+          - os-name: Linux-aarch64
+            os: ubuntu-20.04
+            target: aarch64-unknown-linux-gnu
+            name: inboxapi-cli-linux-arm64
+          - os-name: macOS-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            name: inboxapi-cli-macos-x64
+          - os-name: macOS-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            name: inboxapi-cli-macos-arm64
+          - os-name: Windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: inboxapi-cli-windows-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Install AArch64 Cross-Compiler (Linux)
+        if: matrix.platform.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.platform.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Prepare Artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ matrix.platform.os }}" = "windows-latest" ]; then
+            cp target/${{ matrix.platform.target }}/release/inboxapi-cli.exe dist/
+          else
+            cp target/${{ matrix.platform.target }}/release/inboxapi-cli dist/
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.name }}
+          path: dist/*
+          
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release-assets
+          for dir in artifacts/*; do
+            if [ -d "$dir" ]; then
+              artifact_name=$(basename "$dir")
+              if [ "$artifact_name" == "inboxapi-cli-windows-x64" ]; then
+                cp "$dir/inboxapi-cli.exe" "release-assets/${artifact_name}.exe"
+              else
+                cp "$dir/inboxapi-cli" "release-assets/${artifact_name}"
+              fi
+            fi
+          done
+          
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          fail_on_unmatched_files: true
