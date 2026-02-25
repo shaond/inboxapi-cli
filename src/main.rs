@@ -98,7 +98,14 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Some(Commands::Proxy { endpoint }) => run_proxy(endpoint).await,
-        None => run_proxy(cli.endpoint).await,
+        None => {
+            // Prefer the endpoint stored in credentials, if available; fall back to CLI default.
+            let endpoint = match load_credentials() {
+                Ok(creds) => creds.endpoint,
+                Err(_) => cli.endpoint,
+            };
+            run_proxy(endpoint).await
+        }
     }
 }
 

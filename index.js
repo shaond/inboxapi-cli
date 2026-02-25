@@ -13,7 +13,7 @@ const fs = require('fs');
  * 3. Or download it if not present
  * 
  * For development, it checks target/release or target/debug, 
- * or falls back to 'cargo run -- quiet'.
+ * or falls back to 'cargo run --quiet -- ...'.
  */
 
 const binName = process.platform === 'win32' ? 'inboxapi-cli.exe' : 'inboxapi-cli';

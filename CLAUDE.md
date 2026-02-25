@@ -10,7 +10,7 @@ A Rust-based STDIO proxy for the InboxAPI MCP service. It allows AI tools (like 
 
 ## Architecture
 - **Transport**: Bridges STDIO (stdin/stdout) to remote SSE (Server-Sent Events) and POST requests.
-- **Authentication**: Automatically injects access tokens from `~/.local/inboxapi/credentials.json` into tool calls.
+- **Authentication**: Automatically injects access tokens from the OS config directory (e.g., `~/.config/inboxapi/credentials.json` on Linux) into tool calls.
 - **Onboarding**: Includes a `login` command that handles Hashcash proof-of-work and token exchange.
 
 ## Key Files

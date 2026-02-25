@@ -10,7 +10,7 @@ InboxAPI CLI is a Rust-based STDIO proxy for the InboxAPI MCP service. It provid
 - **Packaging:** Planned as npm package (`@inboxapi/cli`)
 
 ## Environment & Setup
-- **Credentials:** Stored in `~/.local/inboxapi/credentials.json`.
+- **Credentials:** Stored under the OS config directory (e.g. `~/.config/inboxapi/credentials.json` on Linux).
 - **Remote Endpoint:** Default is `https://mcp.inboxapi.ai/mcp`.
 
 ## Development Commands
@@ -22,7 +22,7 @@ cargo run -- proxy # Start proxy (default)
 ```
 
 ## Implementation Notes
-- **Authentication:** Injects `token` into the `arguments` of `tools/call` JSON-RPC messages if the method is `tools/call` and `token` is missing.
+- **Authentication:** Injects the access token value as the `token` field in the `arguments` of `tools/call` JSON-RPC messages when the method is `tools/call` and the `token` argument is missing.
 - **Hashcash:** Custom SHA-1 implementation in `src/main.rs` for `account_create`.
 - **Proxy Loop:**
   - `stdin` -> `POST` to remote.
