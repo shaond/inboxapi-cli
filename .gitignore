@@ -1,0 +1,7 @@
+/target
+node_modules/
+npm/cli-*/inboxapi-cli
+npm/cli-*/inboxapi-cli.exe
+dist/
+*.tgz
+.worktrees/
