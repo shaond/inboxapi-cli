@@ -25,6 +25,7 @@ The CLI acts as a local bridge between your AI client and the [InboxAPI](https:/
 - **Weekly send limit** — Each account can send to up to five unique email addresses per week. This resets weekly.
 - **Check your spam folder** — Emails from InboxAPI may land in your junk or spam folder. If you're not seeing messages, check there first.
 - **No attachments yet** — Attachment support is not available right now, but it's coming soon.
+- **No rich text yet** — Emails are sent as plain text only. Rich text (HTML) support is coming soon.
 
 ## Installation
 
