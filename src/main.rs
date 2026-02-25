@@ -114,14 +114,39 @@ async fn main() -> Result<()> {
 }
 
 async fn run_proxy(endpoint: String) -> Result<()> {
-    // 1. Connect to SSE
+    let http_client = HttpClient::new();
+
+    // Load credentials, auto-creating account if missing
+    let creds = match load_credentials() {
+        Ok(c) => Some(c),
+        Err(_) => {
+            let name = generate_agent_name();
+            eprintln!(
+                "[inboxapi] No credentials found. Auto-creating account '{}'...",
+                name
+            );
+            match create_account_and_authenticate(&name, &endpoint, &http_client).await {
+                Ok(c) => {
+                    eprintln!("[inboxapi] Account created successfully.");
+                    Some(c)
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[inboxapi] Auto-login failed: {}. Continuing unauthenticated.",
+                        e
+                    );
+                    None
+                }
+            }
+        }
+    };
+
+    // Connect to SSE after credential resolution (avoids idle SSE during hashcash PoW)
     let client = eventsource_client::ClientBuilder::for_url(&endpoint)?
         .header(ACCEPT.as_str(), "text/event-stream")?
         .build();
 
     let mut sse_stream = client.stream();
-    let http_client = HttpClient::new();
-    let creds = load_credentials().ok();
 
     // Spawn task for handling SSE -> stdout
     tokio::spawn(async move {
@@ -225,27 +250,135 @@ fn inject_token(msg: &mut Value, token: &str) {
     }
 }
 
-async fn login_flow(name: Option<String>, endpoint: String) -> Result<()> {
-    let name = if let Some(n) = name {
-        n
+fn generate_agent_name() -> String {
+    use rand::seq::SliceRandom;
+    use rand::Rng;
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mood {
+        Silly,
+        Dark,
+        Cute,
+        Chaotic,
+    }
+
+    const MOODS: [Mood; 4] = [Mood::Silly, Mood::Dark, Mood::Cute, Mood::Chaotic];
+
+    fn adjectives_for(mood: Mood) -> &'static [&'static str] {
+        match mood {
+            Mood::Silly => &[
+                "giggly", "wobbly", "bonkers", "goofy", "zany", "wacky", "loopy", "dizzy",
+            ],
+            Mood::Dark => &[
+                "brooding",
+                "shadowy",
+                "grim",
+                "ominous",
+                "cryptic",
+                "mysterious",
+                "sinister",
+                "haunted",
+            ],
+            Mood::Cute => &[
+                "fluffy", "sparkly", "cozy", "tiny", "snuggly", "precious", "dainty", "fuzzy",
+            ],
+            Mood::Chaotic => &[
+                "feral",
+                "unhinged",
+                "rampaging",
+                "turbulent",
+                "volatile",
+                "frenzied",
+                "rogue",
+                "wild",
+            ],
+        }
+    }
+
+    const ANIMALS: &[(&str, &[Mood])] = &[
+        ("penguin", &[Mood::Silly, Mood::Cute]),
+        ("raccoon", &[Mood::Chaotic, Mood::Silly]),
+        ("owl", &[Mood::Dark, Mood::Cute]),
+        ("cat", &[Mood::Chaotic, Mood::Dark, Mood::Cute]),
+        ("capybara", &[Mood::Cute, Mood::Silly]),
+        ("crow", &[Mood::Dark, Mood::Chaotic]),
+        ("otter", &[Mood::Silly, Mood::Cute]),
+        ("wolf", &[Mood::Dark, Mood::Chaotic]),
+        ("hamster", &[Mood::Cute, Mood::Silly]),
+        ("fox", &[Mood::Chaotic, Mood::Dark]),
+        ("duckling", &[Mood::Cute, Mood::Silly]),
+        ("bat", &[Mood::Dark, Mood::Chaotic]),
+        ("panda", &[Mood::Cute, Mood::Silly]),
+        ("raven", &[Mood::Dark]),
+        ("ferret", &[Mood::Chaotic, Mood::Silly]),
+        ("moth", &[Mood::Dark, Mood::Cute]),
+        ("sloth", &[Mood::Silly, Mood::Cute]),
+        ("gecko", &[Mood::Silly, Mood::Chaotic]),
+        ("hedgehog", &[Mood::Cute]),
+        ("possum", &[Mood::Chaotic, Mood::Silly]),
+    ];
+
+    // Markov transition weights: [Silly, Dark, Cute, Chaotic]
+    // Transitions favor contrast over reinforcement for more interesting combos
+    const TRANSITIONS: [[f64; 4]; 4] = [
+        [0.2, 0.2, 0.3, 0.3], // Silly →
+        [0.2, 0.2, 0.3, 0.3], // Dark →
+        [0.3, 0.3, 0.2, 0.2], // Cute →
+        [0.3, 0.3, 0.2, 0.2], // Chaotic →
+    ];
+
+    let mut rng = rand::thread_rng();
+
+    // 1. Pick mood1 uniformly
+    let mood1 = *MOODS.choose(&mut rng).unwrap();
+
+    // 2. Pick adj1 from mood1
+    let adj1 = *adjectives_for(mood1).choose(&mut rng).unwrap();
+
+    // 3. Markov transition to mood2
+    let mood1_idx = MOODS.iter().position(|m| *m == mood1).unwrap();
+    let weights = &TRANSITIONS[mood1_idx];
+    let roll: f64 = rng.gen();
+    let mut cumulative = 0.0;
+    let mut mood2 = MOODS[0];
+    for (i, &w) in weights.iter().enumerate() {
+        cumulative += w;
+        if roll < cumulative {
+            mood2 = MOODS[i];
+            break;
+        }
+    }
+
+    // 4. Pick adj2 from mood2
+    let adj2 = *adjectives_for(mood2).choose(&mut rng).unwrap();
+
+    // 5. Filter animals compatible with either mood
+    let compatible: Vec<&str> = ANIMALS
+        .iter()
+        .filter(|(_, moods)| moods.contains(&mood1) || moods.contains(&mood2))
+        .map(|(name, _)| *name)
+        .collect();
+
+    let animal = if compatible.is_empty() {
+        ANIMALS.choose(&mut rng).unwrap().0
     } else {
-        println!("Enter account name (for hashcash):");
-        let mut n = String::new();
-        let mut reader = BufReader::new(stdin());
-        reader.read_line(&mut n).await?;
-        n.trim().to_string()
+        *compatible.choose(&mut rng).unwrap()
     };
 
-    println!("Generating hashcash for: {}...", name);
-    let hashcash = generate_hashcash(&name, 20).await?;
-    println!("Hashcash generated: {}", hashcash);
+    format!("{}-{}-{}", adj1, adj2, animal)
+}
 
-    let http_client = HttpClient::new();
+async fn create_account_and_authenticate(
+    name: &str,
+    endpoint: &str,
+    http_client: &HttpClient,
+) -> Result<Credentials> {
+    eprintln!("[inboxapi] Generating hashcash for '{}'...", name);
+    let hashcash = generate_hashcash(name, 20).await?;
 
-    // 1. account_create
-    println!("Creating account...");
+    eprintln!("[inboxapi] Creating account...");
     let resp = http_client
-        .post(&endpoint)
+        .post(endpoint)
         .header(CONTENT_TYPE, "application/json")
         .json(&json!({
             "jsonrpc": "2.0",
@@ -264,7 +397,6 @@ async fn login_flow(name: Option<String>, endpoint: String) -> Result<()> {
         .json::<Value>()
         .await?;
 
-    // Parse the response from tools/call
     let content = resp
         .get("result")
         .and_then(|r| r.get("content"))
@@ -279,10 +411,9 @@ async fn login_flow(name: Option<String>, endpoint: String) -> Result<()> {
         .as_str()
         .ok_or_else(|| anyhow!("Missing bootstrap_token in response"))?;
 
-    // 2. auth_exchange
-    println!("Exchanging bootstrap token for access tokens...");
+    eprintln!("[inboxapi] Exchanging tokens...");
     let resp = http_client
-        .post(&endpoint)
+        .post(endpoint)
         .header(CONTENT_TYPE, "application/json")
         .json(&json!({
             "jsonrpc": "2.0",
@@ -320,11 +451,27 @@ async fn login_flow(name: Option<String>, endpoint: String) -> Result<()> {
     let creds = Credentials {
         access_token: access_token.to_string(),
         refresh_token: refresh_token.to_string(),
-        account_name: name,
-        endpoint: endpoint.clone(),
+        account_name: name.to_string(),
+        endpoint: endpoint.to_string(),
     };
 
     save_credentials(&creds)?;
+    Ok(creds)
+}
+
+async fn login_flow(name: Option<String>, endpoint: String) -> Result<()> {
+    let name = if let Some(n) = name {
+        n
+    } else {
+        println!("Enter account name (for hashcash):");
+        let mut n = String::new();
+        let mut reader = BufReader::new(stdin());
+        reader.read_line(&mut n).await?;
+        n.trim().to_string()
+    };
+
+    let http_client = HttpClient::new();
+    create_account_and_authenticate(&name, &endpoint, &http_client).await?;
     println!("Logged in successfully!");
     Ok(())
 }
@@ -637,5 +784,96 @@ mod tests {
     #[test]
     fn verify_hashcash_rejects_invalid_stamp() {
         assert!(!verify_hashcash("not-a-valid-hashcash", 20));
+    }
+
+    // --- agent name generator tests ---
+
+    #[test]
+    fn agent_name_has_correct_format() {
+        let name = generate_agent_name();
+        let parts: Vec<&str> = name.split('-').collect();
+        assert_eq!(parts.len(), 3, "Expected adj-adj-animal, got: {}", name);
+        assert!(!parts[0].is_empty());
+        assert!(!parts[1].is_empty());
+        assert!(!parts[2].is_empty());
+    }
+
+    #[test]
+    fn agent_names_produce_variety() {
+        let names: std::collections::HashSet<String> =
+            (0..50).map(|_| generate_agent_name()).collect();
+        assert!(
+            names.len() >= 25,
+            "Expected at least 25 unique names out of 50, got {}",
+            names.len()
+        );
+    }
+
+    #[test]
+    fn agent_name_parts_are_from_word_lists() {
+        let all_adjectives: std::collections::HashSet<&str> = [
+            "giggly",
+            "wobbly",
+            "bonkers",
+            "goofy",
+            "zany",
+            "wacky",
+            "loopy",
+            "dizzy",
+            "brooding",
+            "shadowy",
+            "grim",
+            "ominous",
+            "cryptic",
+            "mysterious",
+            "sinister",
+            "haunted",
+            "fluffy",
+            "sparkly",
+            "cozy",
+            "tiny",
+            "snuggly",
+            "precious",
+            "dainty",
+            "fuzzy",
+            "feral",
+            "unhinged",
+            "rampaging",
+            "turbulent",
+            "volatile",
+            "frenzied",
+            "rogue",
+            "wild",
+        ]
+        .into_iter()
+        .collect();
+
+        let all_animals: std::collections::HashSet<&str> = [
+            "penguin", "raccoon", "owl", "cat", "capybara", "crow", "otter", "wolf", "hamster",
+            "fox", "duckling", "bat", "panda", "raven", "ferret", "moth", "sloth", "gecko",
+            "hedgehog", "possum",
+        ]
+        .into_iter()
+        .collect();
+
+        for _ in 0..20 {
+            let name = generate_agent_name();
+            let parts: Vec<&str> = name.split('-').collect();
+            assert!(
+                all_adjectives.contains(parts[0]),
+                "Unknown adjective: {}",
+                parts[0]
+            );
+            assert!(
+                all_adjectives.contains(parts[1]),
+                "Unknown adjective: {}",
+                parts[1]
+            );
+            assert!(
+                all_animals.contains(parts[2]),
+                "Unknown animal: {}",
+                parts[2]
+            );
+        }
     }
 }
