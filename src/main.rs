@@ -219,7 +219,10 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                 }
                             }
 
-                            if event_type == "message" && !data_lines.is_empty() {
+                            // Per SSE spec, missing event type defaults to "message"
+                            if (event_type == "message" || event_type.is_empty())
+                                && !data_lines.is_empty()
+                            {
                                 let data = data_lines.join("\n");
                                 out.write_all(format!("{}\n", data).as_bytes()).await?;
                                 out.flush().await?;
@@ -240,7 +243,9 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             }
                         }
 
-                        if event_type == "message" && !data_lines.is_empty() {
+                        if (event_type == "message" || event_type.is_empty())
+                            && !data_lines.is_empty()
+                        {
                             let data = data_lines.join("\n");
                             out.write_all(format!("{}\n", data).as_bytes()).await?;
                             out.flush().await?;
@@ -304,7 +309,8 @@ async fn parse_response(resp: reqwest::Response) -> Result<Value> {
                     }
                 }
 
-                if event_type == "message" && !data_lines.is_empty() {
+                // Per SSE spec, missing event type defaults to "message"
+                if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
                     let data = data_lines.join("\n");
                     return serde_json::from_str(&data)
                         .context("Failed to parse SSE message data as JSON");
@@ -325,7 +331,7 @@ async fn parse_response(resp: reqwest::Response) -> Result<Value> {
                 }
             }
 
-            if event_type == "message" && !data_lines.is_empty() {
+            if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
                 let data = data_lines.join("\n");
                 return serde_json::from_str(&data)
                     .context("Failed to parse SSE message data as JSON");
