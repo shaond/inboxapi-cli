@@ -6,7 +6,8 @@ use reqwest::{Client as HttpClient, header::{CONTENT_TYPE, ACCEPT}};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use tokio::io::{AsyncBufReadExt, BufReader, stdin};
+use std::io::Write;
+use tokio::io::{AsyncBufReadExt, BufReader, stdin, stdout, AsyncWriteExt};
 
 #[derive(Parser)]
 #[command(name = "inboxapi")]
@@ -34,10 +35,7 @@ enum Commands {
         endpoint: String,
     },
     /// Show current account info
-    Whoami {
-        #[arg(long, default_value = "https://mcp.inboxapi.ai/mcp")]
-        endpoint: String,
-    },
+    Whoami,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -49,8 +47,9 @@ struct Credentials {
 }
 
 fn get_credentials_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("Could not find home directory"))?;
-    Ok(home.join(".local/inboxapi/credentials.json"))
+    let base_dir = dirs::config_dir()
+        .ok_or_else(|| anyhow!("Could not determine configuration directory"))?;
+    Ok(base_dir.join("inboxapi").join("credentials.json"))
 }
 
 fn load_credentials() -> Result<Credentials> {
@@ -65,7 +64,24 @@ fn save_credentials(creds: &Credentials) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let content = serde_json::to_string_pretty(creds)?;
-    std::fs::write(path, content)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(content.as_bytes())?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, content)?;
+    }
+
     Ok(())
 }
 
@@ -75,7 +91,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Login { name, endpoint }) => login_flow(name, endpoint).await,
-        Some(Commands::Whoami { endpoint: _ }) => {
+        Some(Commands::Whoami) => {
             let creds = load_credentials()?;
             println!("Logged in as: {}", creds.account_name);
             println!("Endpoint: {}", creds.endpoint);
@@ -98,13 +114,21 @@ async fn run_proxy(endpoint: String) -> Result<()> {
 
     // Spawn task for handling SSE -> stdout
     tokio::spawn(async move {
+        let mut out = stdout();
         while let Some(event) = sse_stream.next().await {
             match event {
                 Ok(SSE::Event(ev)) => {
                     // In MCP Streamable HTTP, messages might come as "message" events or similar
                     // The standard SSE transport for MCP sends JSON-RPC in the "message" event data
                     if ev.event_type == "message" {
-                        println!("{}", ev.data);
+                        if let Err(e) = out.write_all(format!("{}\n", ev.data).as_bytes()).await {
+                            eprintln!("Failed to write to stdout: {}", e);
+                            break;
+                        }
+                        if let Err(e) = out.flush().await {
+                            eprintln!("Failed to flush stdout: {}", e);
+                            break;
+                        }
                     } else if ev.event_type == "endpoint" {
                         // The server might send a new endpoint to POST to, but in our case it's usually the same
                         // If it's different, we should probably update it.
@@ -186,7 +210,8 @@ async fn login_flow(name: Option<String>, endpoint: String) -> Result<()> {
     } else {
         println!("Enter account name (for hashcash):");
         let mut n = String::new();
-        std::io::stdin().read_line(&mut n)?;
+        let mut reader = BufReader::new(stdin());
+        reader.read_line(&mut n).await?;
         n.trim().to_string()
     };
 
@@ -267,41 +292,45 @@ async fn login_flow(name: Option<String>, endpoint: String) -> Result<()> {
 }
 
 async fn generate_hashcash(resource: &str, bits: u32) -> Result<String> {
-    use sha1::{Sha1, Digest};
-    use chrono::Utc;
-    use rand::{thread_rng, Rng};
-    use rand::distributions::Alphanumeric;
+    let resource = resource.to_owned();
 
-    let date = Utc::now().format("%y%m%d").to_string();
-    let salt: String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(16)
-        .map(char::from)
-        .collect();
-    let mut counter: u64 = 0;
+    let stamp = tokio::task::spawn_blocking(move || -> Result<String, anyhow::Error> {
+        use sha1::{Sha1, Digest};
+        use chrono::Utc;
+        use rand::{thread_rng, Rng};
+        use rand::distributions::Alphanumeric;
 
-    loop {
-        let stamp = format!("1:{}:{}:{}::{}:{:x}", bits, date, resource, salt, counter);
-        let mut hasher = Sha1::new();
-        hasher.update(stamp.as_bytes());
-        let result = hasher.finalize();
+        let date = Utc::now().format("%y%m%d").to_string();
+        let salt: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect();
+        let mut counter: u64 = 0;
 
-        let mut zeros = 0;
-        for &byte in result.iter() {
-            if byte == 0 {
-                zeros += 8;
-            } else {
-                zeros += byte.leading_zeros();
-                break;
+        loop {
+            let stamp = format!("1:{}:{}:{}::{}:{:x}", bits, date, resource, salt, counter);
+            let mut hasher = Sha1::new();
+            hasher.update(stamp.as_bytes());
+            let result = hasher.finalize();
+
+            let mut zeros = 0;
+            for &byte in result.iter() {
+                if byte == 0 {
+                    zeros += 8;
+                } else {
+                    zeros += byte.leading_zeros();
+                    break;
+                }
             }
-        }
 
-        if zeros >= bits {
-            return Ok(stamp);
+            if zeros >= bits {
+                return Ok(stamp);
+            }
+            counter += 1;
         }
-        counter += 1;
-        if counter % 100000 == 0 {
-            tokio::task::yield_now().await;
-        }
-    }
+    })
+    .await??;
+
+    Ok(stamp)
 }

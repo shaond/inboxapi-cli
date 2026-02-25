@@ -30,7 +30,11 @@ const args = process.argv.slice(2);
 if (binPath) {
   // Run the native binary
   const child = spawn(binPath, args, { stdio: 'inherit' });
-  child.on('exit', (code) => process.exit(code || 0));
+  child.on('exit', (code, signal) => {
+    if (code !== null) process.exit(code);
+    if (signal) process.kill(process.pid, signal);
+    process.exit(1);
+  });
   child.on('error', (err) => {
     console.error(`Failed to start binary at ${binPath}:`, err);
     process.exit(1);
@@ -39,7 +43,11 @@ if (binPath) {
   // Fallback to cargo run for development
   // Note: this assumes 'cargo' is in the PATH
   const child = spawn('cargo', ['run', '--quiet', '--', ...args], { stdio: 'inherit' });
-  child.on('exit', (code) => process.exit(code || 0));
+  child.on('exit', (code, signal) => {
+    if (code !== null) process.exit(code);
+    if (signal) process.kill(process.pid, signal);
+    process.exit(1);
+  });
   child.on('error', (err) => {
     console.error("Binary not found and 'cargo' failed to start. Have you built the project?");
     process.exit(1);

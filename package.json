@@ -19,9 +19,7 @@
   ],
   "author": "Shaon Diwakar",
   "license": "MIT",
-  "dependencies": {
-    "which": "^4.0.0"
-  },
+  "dependencies": {},
   "scripts": {
     "build": "cargo build --release",
     "test": "cargo test"
