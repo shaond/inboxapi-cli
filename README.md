@@ -87,7 +87,11 @@ claude mcp add inboxapi inboxapi
 **Gemini CLI:**
 
 ```bash
+# Add to current project
 gemini mcp add inboxapi inboxapi
+
+# Add system-wide (available in all directories)
+gemini mcp add inboxapi inboxapi --scope user
 ```
 
 ## Development
