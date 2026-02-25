@@ -147,7 +147,7 @@ jobs:
             chmod +x "npm/${npm_dir}/${bin_name}" 2>/dev/null || true
             (
               cd "npm/${npm_dir}" &&
-              npm version "${VERSION}" --no-git-tag-version &&
+              npm version "${VERSION}" --no-git-tag-version --allow-same-version &&
               npm publish --access public
             )
           }
