@@ -45,6 +45,8 @@ struct Credentials {
     access_token: String,
     refresh_token: String,
     account_name: String,
+    #[serde(default)]
+    account_email: Option<String>,
     endpoint: String,
 }
 
@@ -135,6 +137,9 @@ async fn main() -> Result<()> {
         Some(Commands::Whoami) => {
             let creds = load_credentials()?;
             println!("Logged in as: {}", creds.account_name);
+            if let Some(email) = creds.account_email {
+                println!("Email: {}", email);
+            }
             println!("Endpoint: {}", creds.endpoint);
             Ok(())
         }
@@ -193,6 +198,29 @@ async fn run_proxy(endpoint: String) -> Result<()> {
         if is_help_call(&msg) {
             if let Some(id) = msg.get("id").cloned() {
                 let response = build_help_response(id);
+                let response_str = serde_json::to_string(&response)?;
+                out.write_all(format!("{}\n", response_str).as_bytes())
+                    .await?;
+                out.flush().await?;
+                continue;
+            }
+        }
+
+        // Intercept whoami tool calls — return local account info
+        if is_whoami_call(&msg) {
+            if let Some(id) = msg.get("id").cloned() {
+                let response = if let Some(creds) = &creds {
+                    build_whoami_response(id, creds)
+                } else {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Not logged in. Use 'inboxapi login' or run the proxy to auto-create an account."
+                        }
+                    })
+                };
                 let response_str = serde_json::to_string(&response)?;
                 out.write_all(format!("{}\n", response_str).as_bytes())
                     .await?;
@@ -605,11 +633,16 @@ async fn refresh_access_token(
     let refresh_token = token_data["refresh_token"]
         .as_str()
         .ok_or_else(|| anyhow!("Missing refresh_token in refresh response"))?;
+    let email = token_data["email"]
+        .as_str()
+        .map(|s| s.to_string())
+        .or(creds.account_email.clone());
 
     let new_creds = Credentials {
         access_token: access_token.to_string(),
         refresh_token: refresh_token.to_string(),
         account_name: creds.account_name.clone(),
+        account_email: email,
         endpoint: endpoint.to_string(),
     };
 
@@ -669,6 +702,38 @@ fn build_help_response(id: Value) -> Value {
     })
 }
 
+fn is_whoami_call(msg: &Value) -> bool {
+    msg.get("method")
+        .and_then(|m| m.as_str())
+        .is_some_and(|m| m == "tools/call")
+        && msg
+            .get("params")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .is_some_and(|n| n == "whoami")
+}
+
+fn build_whoami_response(id: Value, creds: &Credentials) -> Value {
+    let name = &creds.account_name;
+    let email = creds
+        .account_email
+        .as_deref()
+        .unwrap_or("Unknown (full email not available)");
+
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": format!("Name: {}\nEmail: {}", name, email)
+                }
+            ]
+        }
+    })
+}
+
 fn inject_initialize_instructions(body: &str) -> String {
     if let Ok(mut parsed) = serde_json::from_str::<Value>(body) {
         if let Some(result) = parsed.get_mut("result").and_then(|r| r.as_object_mut()) {
@@ -697,6 +762,16 @@ fn rewrite_tools_list(body: &str) -> String {
             .and_then(|r| r.get_mut("tools"))
             .and_then(|t| t.as_array_mut())
         {
+            // Inject local tools
+            tools.push(json!({
+                "name": "whoami",
+                "description": "Get your account name and email address.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }));
+
             for tool in tools.iter_mut() {
                 if let Some(name) = tool.get("name").and_then(|n| n.as_str()) {
                     if AUTH_TOOLS_TO_REWRITE.contains(&name) {
@@ -920,6 +995,7 @@ async fn create_account_and_authenticate(
     let bootstrap_token = account_data["bootstrap_token"]
         .as_str()
         .ok_or_else(|| anyhow!("Missing bootstrap_token in response"))?;
+    let email = account_data["email"].as_str().map(|s| s.to_string());
 
     eprintln!("[inboxapi] Exchanging tokens...");
     let resp = http_client
@@ -962,6 +1038,7 @@ async fn create_account_and_authenticate(
         access_token: access_token.to_string(),
         refresh_token: refresh_token.to_string(),
         account_name: name.to_string(),
+        account_email: email,
         endpoint: endpoint.to_string(),
     };
 
@@ -1225,6 +1302,7 @@ mod tests {
             access_token: "at-123".to_string(),
             refresh_token: "rt-456".to_string(),
             account_name: "testuser".to_string(),
+            account_email: Some("testuser@example.com".to_string()),
             endpoint: "https://mcp.inboxapi.ai/mcp".to_string(),
         };
 
@@ -1234,6 +1312,7 @@ mod tests {
         assert_eq!(deserialized.access_token, "at-123");
         assert_eq!(deserialized.refresh_token, "rt-456");
         assert_eq!(deserialized.account_name, "testuser");
+        assert_eq!(deserialized.account_email.unwrap(), "testuser@example.com");
         assert_eq!(deserialized.endpoint, "https://mcp.inboxapi.ai/mcp");
     }
 
@@ -1249,6 +1328,7 @@ mod tests {
         let creds: Credentials = serde_json::from_str(json_str).unwrap();
         assert_eq!(creds.access_token, "abc");
         assert_eq!(creds.account_name, "user1");
+        assert_eq!(creds.account_email, None);
     }
 
     #[test]
@@ -1412,6 +1492,54 @@ mod tests {
         assert!(!is_help_call(&msg));
     }
 
+    // --- is_whoami_call tests ---
+
+    #[test]
+    fn is_whoami_call_returns_true_for_whoami_tool() {
+        let msg = make_tools_call("whoami", json!({}));
+        assert!(is_whoami_call(&msg));
+    }
+
+    #[test]
+    fn is_whoami_call_returns_false_for_other_tools() {
+        let msg = make_tools_call("get_emails", json!({"limit": 10}));
+        assert!(!is_whoami_call(&msg));
+    }
+
+    // --- build_whoami_response tests ---
+
+    #[test]
+    fn build_whoami_response_has_correct_structure() {
+        let creds = Credentials {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            account_name: "testuser".to_string(),
+            account_email: Some("testuser@example.com".to_string()),
+            endpoint: "ep".to_string(),
+        };
+        let resp = build_whoami_response(json!(1), &creds);
+        assert_eq!(resp["jsonrpc"], "2.0");
+        assert_eq!(resp["id"], 1);
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Name: testuser"));
+        assert!(text.contains("Email: testuser@example.com"));
+    }
+
+    #[test]
+    fn build_whoami_response_handles_missing_email() {
+        let creds = Credentials {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            account_name: "testuser".to_string(),
+            account_email: None,
+            endpoint: "ep".to_string(),
+        };
+        let resp = build_whoami_response(json!(1), &creds);
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Name: testuser"));
+        assert!(text.contains("Unknown"));
+    }
+
     // --- build_help_response tests ---
 
     #[test]
@@ -1485,8 +1613,14 @@ mod tests {
         let parsed: Value = serde_json::from_str(&result).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
 
+        // Should have 4 tools now (3 auth + 1 local whoami)
+        assert_eq!(tools.len(), 4);
+        assert!(tools.iter().any(|t| t["name"] == "whoami"));
+
         for tool in tools {
-            assert_eq!(tool["description"], AUTH_TOOL_OVERRIDE);
+            if tool["name"] != "whoami" {
+                assert_eq!(tool["description"], AUTH_TOOL_OVERRIDE);
+            }
         }
     }
 
@@ -1528,7 +1662,9 @@ mod tests {
         let body = r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#;
         let result = rewrite_tools_list(body);
         let parsed: Value = serde_json::from_str(&result).unwrap();
-        assert!(parsed["result"]["tools"].as_array().unwrap().is_empty());
+        // Now contains 1 tool (the injected local whoami)
+        assert_eq!(parsed["result"]["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(parsed["result"]["tools"][0]["name"], "whoami");
     }
 
     #[test]
