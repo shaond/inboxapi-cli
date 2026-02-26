@@ -6,8 +6,8 @@ Give your AI agent its own email address. Send, receive, read, search, and reply
 
 Copy and paste this sentence into your agent:  
 
-```plaintext
-"Install the `@inboxapi/cli` npm package globally and then register the `inboxapi` command as an MCP server named `inboxapi`."
+```
+Install the `@inboxapi/cli` npm package globally and then register the `inboxapi` command as an MCP server named `inboxapi`.
 ```
 
 ### How it works
