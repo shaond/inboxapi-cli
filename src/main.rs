@@ -204,6 +204,12 @@ fn backup_credentials(folder: &str) -> Result<()> {
         .with_context(|| format!("Failed to create directory {}", dest.display()))?;
 
     let dest_file = dest.join("credentials.json");
+
+    if dest_file.exists() && !prompt_yes_no("Backup file already exists. Overwrite? [y/N] ") {
+        println!("Aborted.");
+        return Ok(());
+    }
+
     let content = serde_json::to_string_pretty(&creds)?;
 
     #[cfg(unix)]
@@ -239,6 +245,22 @@ fn restore_credentials(folder: &str) -> Result<()> {
         return Err(anyhow!(
             "Backup contains empty tokens — refusing to restore potentially corrupted credentials"
         ));
+    }
+
+    if let Ok(existing) = load_credentials() {
+        println!("Existing credentials found for: {}", existing.account_name);
+        if prompt_yes_no("Back up existing credentials before restoring? [y/N] ") {
+            let backup_folder = prompt_line("Backup folder path: ")?;
+            if backup_folder.is_empty() {
+                println!("No folder provided, skipping backup.");
+            } else {
+                backup_credentials(&backup_folder)?;
+            }
+        }
+        if !prompt_yes_no("Overwrite existing credentials? [y/N] ") {
+            println!("Aborted.");
+            return Ok(());
+        }
     }
 
     save_credentials(&creds)?;
