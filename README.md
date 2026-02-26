@@ -1,8 +1,8 @@
 # InboxAPI CLI
 
-Give your AI agent its own email address. Send, receive, read, search, and reply to emails — right from Claude, Codex, Gemini, or any MCP-compatible AI client. No email server to run, no SMTP to configure.
+Give your AI agent its own email address. Send, receive, read, search, and reply to emails — right from Claude, OpenCode, Codex, Gemini, or any MCP-compatible AI client. No email server to run, no SMTP to configure.
 
-**Quick Setup (Claude Code, Gemini CLI, etc.):** 
+**Quick Setup (Claude Code, Gemini CLI, OpenCode, etc.):**
 
 Copy and paste this sentence into your agent:  
 
@@ -13,7 +13,7 @@ Install the `@inboxapi/cli` npm package globally and then register the `inboxapi
 ### How it works
 
 1. Install the CLI
-2. Connect it to your AI client (Claude Desktop, Claude Code, Gemini CLI, etc.)
+2. Connect it to your AI client (Claude Desktop, Claude Code, Gemini CLI, OpenCode, etc.)
 3. Your AI can now use email — no code or API keys needed
 
 An account with a unique email address is created automatically on first run. Your AI can then:
@@ -139,6 +139,20 @@ Add system-wide (available in all directories):
 
 ```bash
 gemini mcp add inboxapi inboxapi --scope user
+```
+
+**OpenCode:**
+
+Add to current project:
+
+```bash
+opencode mcp add inboxapi inboxapi
+```
+
+Add globally (available in all projects):
+
+```bash
+opencode mcp add inboxapi inboxapi -s user
 ```
 
 **Codex CLI:**
