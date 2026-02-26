@@ -197,9 +197,22 @@ fn reset_credentials() -> Result<()> {
     Ok(())
 }
 
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    } else if path == "~" {
+        if let Some(home) = dirs::home_dir() {
+            return home;
+        }
+    }
+    PathBuf::from(path)
+}
+
 fn backup_credentials(folder: &str) -> Result<()> {
     let creds = load_credentials()?;
-    let dest = PathBuf::from(folder);
+    let dest = expand_tilde(folder);
     std::fs::create_dir_all(&dest)
         .with_context(|| format!("Failed to create directory {}", dest.display()))?;
 
@@ -235,7 +248,7 @@ fn backup_credentials(folder: &str) -> Result<()> {
 }
 
 fn restore_credentials(folder: &str) -> Result<()> {
-    let src_file = PathBuf::from(folder).join("credentials.json");
+    let src_file = expand_tilde(folder).join("credentials.json");
     let content = std::fs::read_to_string(&src_file)
         .with_context(|| format!("Failed to read {}", src_file.display()))?;
     let creds: Credentials = serde_json::from_str(&content)
