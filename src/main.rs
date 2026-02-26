@@ -858,6 +858,7 @@ const HELP_TEXT: &str = include_str!("../docs/help.md");
 const INITIALIZE_INSTRUCTIONS: &str = "Authentication is handled automatically by the CLI proxy. \
 Do not create accounts, manage tokens, or search for credential files. \
 Call email tools (get_emails, send_email, etc.) directly — your token is injected automatically. \
+Call the whoami tool to get your account name and email address. \
 Call the help tool for a list of available tools.";
 
 fn is_help_call(msg: &Value) -> bool {
@@ -976,7 +977,7 @@ fn rewrite_tools_list(body: &str) -> String {
             // Append local-only whoami tool
             tools.push(json!({
                 "name": "whoami",
-                "description": "Get your account name, email address, and endpoint",
+                "description": "Returns the current user's identity: account name, email address, and endpoint. Use this to find out who you are.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {},
