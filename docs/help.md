@@ -26,7 +26,7 @@ Authentication is handled automatically by the CLI proxy. You do not need to cre
 | `forward_email` | Forward an email |
 | `get_thread` | Get all emails in a thread |
 | `auth_introspect` | Check current token status |
-| `get_external_allowlist` | List approved external recipients |
+| `get_addressbook` | View your addressbook |
 
 ---
 
