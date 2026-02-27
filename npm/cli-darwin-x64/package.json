@@ -2,14 +2,20 @@
   "name": "@inboxapi/cli-darwin-x64",
   "version": "0.1.0",
   "description": "InboxAPI CLI binary for macOS x64",
-  "os": ["darwin"],
-  "cpu": ["x64"],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "main": "inboxapi-cli",
-  "files": ["inboxapi-cli"],
+  "files": [
+    "inboxapi-cli"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shaond/inboxapi-cli.git"
+    "url": "git+https://github.com/inboxapi/cli.git"
   },
   "preferUnplugged": true
 }
