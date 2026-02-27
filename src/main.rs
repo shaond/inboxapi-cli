@@ -559,10 +559,11 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                 {
                                     let mut data = data_lines.join("\n");
                                     if method == "initialize" {
-                                        data = inject_initialize_instructions(&data);
+                                        data =
+                                            inject_initialize_instructions(&data, creds.as_ref());
                                     }
                                     if method == "tools/list" {
-                                        data = rewrite_tools_list(&data);
+                                        data = rewrite_tools_list(&data, creds.as_ref());
                                     }
                                     out.write_all(format!("{}\n", data).as_bytes()).await?;
                                     out.flush().await?;
@@ -587,10 +588,10 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             {
                                 let mut data = data_lines.join("\n");
                                 if method == "initialize" {
-                                    data = inject_initialize_instructions(&data);
+                                    data = inject_initialize_instructions(&data, creds.as_ref());
                                 }
                                 if method == "tools/list" {
-                                    data = rewrite_tools_list(&data);
+                                    data = rewrite_tools_list(&data, creds.as_ref());
                                 }
                                 out.write_all(format!("{}\n", data).as_bytes()).await?;
                                 out.flush().await?;
@@ -600,10 +601,10 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                         let mut body = resp.text().await.unwrap_or_default();
                         if !body.is_empty() && !is_notification {
                             if method == "initialize" {
-                                body = inject_initialize_instructions(&body);
+                                body = inject_initialize_instructions(&body, creds.as_ref());
                             }
                             if method == "tools/list" {
-                                body = rewrite_tools_list(&body);
+                                body = rewrite_tools_list(&body, creds.as_ref());
                             }
                             out.write_all(format!("{}\n", body).as_bytes()).await?;
                             out.flush().await?;
@@ -938,10 +939,30 @@ fn build_help_response(id: Value) -> Value {
     })
 }
 
-fn inject_initialize_instructions(body: &str) -> String {
+fn sanitize_for_description(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.' || *c == '@')
+        .take(128)
+        .collect()
+}
+
+fn inject_initialize_instructions(body: &str, creds: Option<&Credentials>) -> String {
     if let Ok(mut parsed) = serde_json::from_str::<Value>(body) {
         if let Some(result) = parsed.get_mut("result").and_then(|r| r.as_object_mut()) {
-            result.insert("instructions".to_string(), json!(INITIALIZE_INSTRUCTIONS));
+            let mut instructions = INITIALIZE_INSTRUCTIONS.to_string();
+            // Only inject identity when email is available — name alone isn't actionable.
+            if let Some(c) = creds {
+                let name = sanitize_for_description(&c.account_name);
+                if let Some(ref email) = c.email {
+                    let email = sanitize_for_description(email);
+                    instructions.push_str(&format!(
+                        " Your account name is '{}' and your InboxAPI email address is '{}'.\
+                         Always use '{}' as your from_name when sending emails.",
+                        name, email, name
+                    ));
+                }
+            }
+            result.insert("instructions".to_string(), json!(instructions));
             return serde_json::to_string(&parsed).unwrap_or_else(|_| body.to_string());
         }
     }
@@ -959,7 +980,19 @@ const AUTH_TOOLS_TO_REWRITE: &[&str] = &[
     "auth_revoke_all",
 ];
 
-fn rewrite_tools_list(body: &str) -> String {
+const IDENTITY_TOOLS: &[&str] = &["send_email", "send_reply", "forward_email"];
+
+fn rewrite_tools_list(body: &str, creds: Option<&Credentials>) -> String {
+    // Identity is only injected when both account_name and email are present.
+    // Name alone isn't useful — agents need the email to know their from address.
+    let identity_suffix = creds.and_then(|c| {
+        c.email.as_ref().map(|email| {
+            let name = sanitize_for_description(&c.account_name);
+            let email = sanitize_for_description(email);
+            (name, email)
+        })
+    });
+
     if let Ok(mut parsed) = serde_json::from_str::<Value>(body) {
         if let Some(tools) = parsed
             .get_mut("result")
@@ -971,6 +1004,20 @@ fn rewrite_tools_list(body: &str) -> String {
                     if AUTH_TOOLS_TO_REWRITE.contains(&name) {
                         if let Some(obj) = tool.as_object_mut() {
                             obj.insert("description".to_string(), json!(AUTH_TOOL_OVERRIDE));
+                        }
+                    } else if IDENTITY_TOOLS.contains(&name) {
+                        if let Some((ref san_name, ref san_email)) = identity_suffix {
+                            if let Some(obj) = tool.as_object_mut() {
+                                let existing = obj
+                                    .get("description")
+                                    .and_then(|d| d.as_str())
+                                    .unwrap_or("");
+                                let new_desc = format!(
+                                    "{} Your account name is '{}' and your InboxAPI email is '{}'. Use '{}' as from_name.",
+                                    existing, san_name, san_email, san_name
+                                );
+                                obj.insert("description".to_string(), json!(new_desc));
+                            }
                         }
                     }
                 }
@@ -991,9 +1038,16 @@ fn rewrite_tools_list(body: &str) -> String {
             }
 
             // Append local-only whoami tool
+            let whoami_desc = match identity_suffix {
+                Some((ref name, ref email)) => format!(
+                    "Returns this agent's own identity. You are '{}' with email '{}'. This is the agent's mailbox, not the human user's personal email. To email the human, ask them for their address.",
+                    name, email
+                ),
+                None => "Returns this agent's own identity: account name, InboxAPI email address, and endpoint. This is the agent's mailbox, not the human user's personal email. To email the human, ask them for their address.".to_string(),
+            };
             tools.push(json!({
                 "name": "whoami",
-                "description": "Returns this agent's own identity: account name, InboxAPI email address, and endpoint. This is the agent's mailbox, not the human user's personal email. To email the human, ask them for their address.",
+                "description": whoami_desc,
                 "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -1724,7 +1778,7 @@ mod tests {
     #[test]
     fn inject_initialize_instructions_adds_field() {
         let body = r#"{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}"#;
-        let modified = inject_initialize_instructions(body);
+        let modified = inject_initialize_instructions(body, None);
         let parsed: Value = serde_json::from_str(&modified).unwrap();
         let instructions = parsed["result"]["instructions"].as_str().unwrap();
         assert!(instructions.contains("handled automatically"));
@@ -1733,7 +1787,7 @@ mod tests {
     #[test]
     fn inject_initialize_instructions_preserves_existing_fields() {
         let body = r#"{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}},"serverInfo":{"name":"test"}}}"#;
-        let modified = inject_initialize_instructions(body);
+        let modified = inject_initialize_instructions(body, None);
         let parsed: Value = serde_json::from_str(&modified).unwrap();
         assert_eq!(parsed["result"]["serverInfo"]["name"], "test");
         assert!(parsed["result"]["capabilities"]["tools"].is_object());
@@ -1743,8 +1797,26 @@ mod tests {
     #[test]
     fn inject_initialize_instructions_returns_unchanged_on_invalid_json() {
         let body = "not valid json";
-        let result = inject_initialize_instructions(body);
+        let result = inject_initialize_instructions(body, None);
         assert_eq!(result, "not valid json");
+    }
+
+    #[test]
+    fn inject_initialize_instructions_with_creds_includes_identity() {
+        let creds = Credentials {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            account_name: "test-agent".to_string(),
+            endpoint: "https://example.com".to_string(),
+            email: Some("test-agent@inboxapi.io".to_string()),
+        };
+        let body = r#"{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}"#;
+        let modified = inject_initialize_instructions(body, Some(&creds));
+        let parsed: Value = serde_json::from_str(&modified).unwrap();
+        let instructions = parsed["result"]["instructions"].as_str().unwrap();
+        assert!(instructions.contains("test-agent"));
+        assert!(instructions.contains("test-agent@inboxapi.io"));
+        assert!(instructions.contains("from_name"));
     }
 
     // --- rewrite_tools_list tests ---
@@ -1767,7 +1839,7 @@ mod tests {
             json!({"name": "auth_exchange", "description": "Step 2: Exchange your bootstrap token..."}),
             json!({"name": "auth_refresh", "description": "Step 3 (when needed): Refresh an expired access token..."}),
         ]);
-        let result = rewrite_tools_list(&body);
+        let result = rewrite_tools_list(&body, None);
         let parsed: Value = serde_json::from_str(&result).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
 
@@ -1786,7 +1858,7 @@ mod tests {
             json!({"name": "auth_introspect", "description": "Check token status"}),
             json!({"name": "account_create", "description": "Old description"}),
         ]);
-        let result = rewrite_tools_list(&body);
+        let result = rewrite_tools_list(&body, None);
         let parsed: Value = serde_json::from_str(&result).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
 
@@ -1803,7 +1875,7 @@ mod tests {
             "description": "Old description",
             "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}
         })]);
-        let result = rewrite_tools_list(&body);
+        let result = rewrite_tools_list(&body, None);
         let parsed: Value = serde_json::from_str(&result).unwrap();
         let tool = &parsed["result"]["tools"][0];
 
@@ -1814,7 +1886,7 @@ mod tests {
     #[test]
     fn rewrite_tools_list_handles_no_tools() {
         let body = r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#;
-        let result = rewrite_tools_list(body);
+        let result = rewrite_tools_list(body, None);
         let parsed: Value = serde_json::from_str(&result).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
         // Only the injected whoami tool should be present
@@ -1825,22 +1897,141 @@ mod tests {
     #[test]
     fn rewrite_tools_list_returns_unchanged_on_invalid_json() {
         let body = "not valid json";
-        assert_eq!(rewrite_tools_list(body), "not valid json");
+        assert_eq!(rewrite_tools_list(body, None), "not valid json");
     }
 
     #[test]
     fn rewrite_tools_list_returns_unchanged_without_result() {
         let body = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"fail"}}"#;
-        let result = rewrite_tools_list(body);
+        let result = rewrite_tools_list(body, None);
         assert_eq!(result, body);
     }
 
     #[test]
     fn inject_initialize_instructions_returns_unchanged_without_result() {
         let body = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"fail"}}"#;
-        let result = inject_initialize_instructions(body);
+        let result = inject_initialize_instructions(body, None);
         let parsed: Value = serde_json::from_str(&result).unwrap();
         assert!(parsed["result"]["instructions"].is_null());
+    }
+
+    fn make_test_creds() -> Credentials {
+        Credentials {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            account_name: "cool-agent".to_string(),
+            endpoint: "https://example.com".to_string(),
+            email: Some("cool-agent@inboxapi.io".to_string()),
+        }
+    }
+
+    #[test]
+    fn rewrite_tools_list_with_creds_annotates_identity_tools() {
+        let creds = make_test_creds();
+        let body = make_tools_list_response(vec![
+            json!({"name": "send_email", "description": "Send an email."}),
+            json!({"name": "send_reply", "description": "Reply to an email."}),
+            json!({"name": "forward_email", "description": "Forward an email."}),
+            json!({"name": "get_emails", "description": "Get emails."}),
+        ]);
+        let result = rewrite_tools_list(&body, Some(&creds));
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let tools = parsed["result"]["tools"].as_array().unwrap();
+
+        // send_email, send_reply, forward_email should contain identity
+        for i in 0..3 {
+            let desc = tools[i]["description"].as_str().unwrap();
+            assert!(
+                desc.contains("cool-agent"),
+                "tool {} missing name",
+                tools[i]["name"]
+            );
+            assert!(
+                desc.contains("cool-agent@inboxapi.io"),
+                "tool {} missing email",
+                tools[i]["name"]
+            );
+        }
+        // get_emails should NOT be annotated
+        let get_desc = tools[3]["description"].as_str().unwrap();
+        assert!(!get_desc.contains("cool-agent"));
+    }
+
+    #[test]
+    fn rewrite_tools_list_whoami_includes_identity_when_creds_present() {
+        let creds = make_test_creds();
+        let body = make_tools_list_response(vec![]);
+        let result = rewrite_tools_list(&body, Some(&creds));
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let tools = parsed["result"]["tools"].as_array().unwrap();
+        let whoami = tools.last().unwrap();
+        let desc = whoami["description"].as_str().unwrap();
+        assert!(desc.contains("cool-agent"));
+        assert!(desc.contains("cool-agent@inboxapi.io"));
+    }
+
+    #[test]
+    fn sanitize_for_description_strips_dangerous_chars() {
+        assert_eq!(sanitize_for_description("good-name_123"), "good-name_123");
+        assert_eq!(sanitize_for_description("user@domain.io"), "user@domain.io");
+        assert_eq!(
+            sanitize_for_description("evil<script>alert('xss')</script>"),
+            "evilscriptalertxssscript"
+        );
+        assert_eq!(
+            sanitize_for_description("name with spaces"),
+            "namewithspaces"
+        );
+    }
+
+    #[test]
+    fn sanitize_for_description_truncates_long_input() {
+        let long_input = "a".repeat(200);
+        let result = sanitize_for_description(&long_input);
+        assert_eq!(result.len(), 128);
+    }
+
+    // --- creds without email edge case tests ---
+
+    fn make_creds_without_email() -> Credentials {
+        Credentials {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            account_name: "no-email-agent".to_string(),
+            endpoint: "https://example.com".to_string(),
+            email: None,
+        }
+    }
+
+    #[test]
+    fn inject_initialize_instructions_with_creds_no_email_skips_identity() {
+        let creds = make_creds_without_email();
+        let body = r#"{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}"#;
+        let modified = inject_initialize_instructions(body, Some(&creds));
+        let parsed: Value = serde_json::from_str(&modified).unwrap();
+        let instructions = parsed["result"]["instructions"].as_str().unwrap();
+        assert!(instructions.contains("handled automatically"));
+        assert!(!instructions.contains("no-email-agent"));
+    }
+
+    #[test]
+    fn rewrite_tools_list_with_creds_no_email_skips_identity_tools() {
+        let creds = make_creds_without_email();
+        let body = make_tools_list_response(vec![
+            json!({"name": "send_email", "description": "Send an email."}),
+            json!({"name": "get_emails", "description": "Get emails."}),
+        ]);
+        let result = rewrite_tools_list(&body, Some(&creds));
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let tools = parsed["result"]["tools"].as_array().unwrap();
+
+        // send_email should NOT be annotated when email is missing
+        assert_eq!(tools[0]["description"], "Send an email.");
+        // whoami should use the default description
+        let whoami = tools.last().unwrap();
+        let desc = whoami["description"].as_str().unwrap();
+        assert!(!desc.contains("no-email-agent"));
+        assert!(desc.contains("Returns this agent's own identity:"));
     }
 
     // --- is_token_expired_error tests ---
