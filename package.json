@@ -6,10 +6,12 @@
   "bin": {
     "inboxapi": "index.js"
   },
-  "files": ["index.js"],
+  "files": [
+    "index.js"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shaond/inboxapi-cli.git"
+    "url": "git+https://github.com/inboxapi/cli.git"
   },
   "keywords": [
     "mcp",
