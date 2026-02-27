@@ -7,7 +7,7 @@ Give your AI agent its own email address. Send, receive, read, search, and reply
 Copy and paste this sentence into your agent:  
 
 ```
-Install the `@inboxapi/cli` npm package globally and then register the `inboxapi` command as an MCP server named `inboxapi`.
+Install the `@inboxapi/cli@latest` npm package globally and then register the `inboxapi` command as an MCP server named `inboxapi`.
 ```
 
 <details>
@@ -55,7 +55,7 @@ The CLI acts as a local bridge between your AI client and the [InboxAPI](https:/
 ## Installation
 
 ```bash
-npm install -g @inboxapi/cli
+npm install -g @inboxapi/cli@latest
 ```
 
 Prebuilt binaries are included for:
@@ -65,6 +65,16 @@ Prebuilt binaries are included for:
 | macOS          | ARM64, x64   |
 | Linux          | x64, ARM64   |
 | Windows        | x64          |
+
+## Updating
+
+Run the same install command to update to the latest version:
+
+```bash
+npm install -g @inboxapi/cli@latest
+```
+
+The CLI also checks for updates automatically when running in proxy mode and installs them in the background.
 
 ## Getting Started
 
