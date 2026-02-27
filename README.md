@@ -193,17 +193,17 @@ gemini mcp add inboxapi inboxapi --scope user
 
 **OpenCode:**
 
-Add to current project:
+Run the interactive setup:
 
 ```bash
-opencode mcp add inboxapi inboxapi
+opencode mcp add
 ```
 
-Add globally (available in all projects):
-
-```bash
-opencode mcp add inboxapi inboxapi -s user
-```
+When prompted, enter:
+- **Location:** Global
+- **MCP server name:** inboxapi
+- **MCP server type:** Local
+- **Command to run:** inboxapi
 
 **Codex CLI:**
 
