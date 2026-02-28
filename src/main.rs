@@ -1103,74 +1103,71 @@ fn generate_agent_name() -> String {
     #[derive(Clone, Copy, PartialEq)]
     enum Mood {
         Silly,
-        Dark,
+        Cheerful,
         Cute,
-        Chaotic,
+        Playful,
     }
 
-    const MOODS: [Mood; 4] = [Mood::Silly, Mood::Dark, Mood::Cute, Mood::Chaotic];
+    const MOODS: [Mood; 4] = [Mood::Silly, Mood::Cheerful, Mood::Cute, Mood::Playful];
 
     fn adjectives_for(mood: Mood) -> &'static [&'static str] {
         match mood {
             Mood::Silly => &[
                 "giggly", "wobbly", "bonkers", "goofy", "zany", "wacky", "loopy", "dizzy",
             ],
-            Mood::Dark => &[
-                "brooding",
-                "shadowy",
-                "grim",
-                "ominous",
-                "cryptic",
-                "mysterious",
-                "sinister",
-                "haunted",
+            Mood::Cheerful => &[
+                "sunny", "jolly", "bright", "merry", "chipper", "gleeful", "peppy", "radiant",
             ],
             Mood::Cute => &[
                 "fluffy", "sparkly", "cozy", "tiny", "snuggly", "precious", "dainty", "fuzzy",
             ],
-            Mood::Chaotic => &[
-                "feral",
-                "unhinged",
-                "rampaging",
-                "turbulent",
-                "volatile",
-                "frenzied",
-                "rogue",
-                "wild",
+            Mood::Playful => &[
+                "bouncy", "zippy", "frisky", "prancy", "bubbly", "perky", "spritely", "jivy",
             ],
         }
     }
 
     const ANIMALS: &[(&str, &[Mood])] = &[
         ("penguin", &[Mood::Silly, Mood::Cute]),
-        ("raccoon", &[Mood::Chaotic, Mood::Silly]),
-        ("owl", &[Mood::Dark, Mood::Cute]),
-        ("cat", &[Mood::Chaotic, Mood::Dark, Mood::Cute]),
+        ("raccoon", &[Mood::Playful, Mood::Silly]),
+        ("owl", &[Mood::Cheerful, Mood::Cute]),
+        ("cat", &[Mood::Playful, Mood::Cheerful, Mood::Cute]),
         ("capybara", &[Mood::Cute, Mood::Silly]),
-        ("crow", &[Mood::Dark, Mood::Chaotic]),
-        ("otter", &[Mood::Silly, Mood::Cute]),
-        ("wolf", &[Mood::Dark, Mood::Chaotic]),
+        ("otter", &[Mood::Silly, Mood::Playful]),
         ("hamster", &[Mood::Cute, Mood::Silly]),
-        ("fox", &[Mood::Chaotic, Mood::Dark]),
+        ("fox", &[Mood::Playful, Mood::Cheerful]),
         ("duckling", &[Mood::Cute, Mood::Silly]),
-        ("bat", &[Mood::Dark, Mood::Chaotic]),
         ("panda", &[Mood::Cute, Mood::Silly]),
-        ("raven", &[Mood::Dark]),
-        ("ferret", &[Mood::Chaotic, Mood::Silly]),
-        ("moth", &[Mood::Dark, Mood::Cute]),
+        ("ferret", &[Mood::Playful, Mood::Silly]),
         ("sloth", &[Mood::Silly, Mood::Cute]),
-        ("gecko", &[Mood::Silly, Mood::Chaotic]),
+        ("gecko", &[Mood::Silly, Mood::Playful]),
         ("hedgehog", &[Mood::Cute]),
-        ("possum", &[Mood::Chaotic, Mood::Silly]),
+        ("bunny", &[Mood::Cute, Mood::Playful]),
+        ("puppy", &[Mood::Cheerful, Mood::Playful]),
+        ("kitten", &[Mood::Cute, Mood::Playful]),
+        ("dolphin", &[Mood::Cheerful, Mood::Playful]),
+        ("butterfly", &[Mood::Cheerful, Mood::Cute]),
+        ("hummingbird", &[Mood::Cheerful, Mood::Playful]),
+        ("quokka", &[Mood::Cheerful, Mood::Silly]),
+        ("robin", &[Mood::Cheerful, Mood::Cute]),
+        ("piglet", &[Mood::Cute, Mood::Silly]),
+        ("lamb", &[Mood::Cute, Mood::Cheerful]),
+        ("chipmunk", &[Mood::Playful, Mood::Silly]),
+        ("seahorse", &[Mood::Cute, Mood::Cheerful]),
+        ("koala", &[Mood::Cute, Mood::Silly]),
+        ("honeybee", &[Mood::Cheerful, Mood::Playful]),
+        ("puffin", &[Mood::Silly, Mood::Cute]),
+        ("fawn", &[Mood::Cute, Mood::Cheerful]),
+        ("kangaroo", &[Mood::Playful, Mood::Cheerful]),
     ];
 
-    // Markov transition weights: [Silly, Dark, Cute, Chaotic]
-    // Transitions favor contrast over reinforcement for more interesting combos
+    // Markov transition weights: [Silly, Cheerful, Cute, Playful]
+    // Transitions favor complementary moods for charming combos
     const TRANSITIONS: [[f64; 4]; 4] = [
-        [0.2, 0.2, 0.3, 0.3], // Silly →
-        [0.2, 0.2, 0.3, 0.3], // Dark →
-        [0.3, 0.3, 0.2, 0.2], // Cute →
-        [0.3, 0.3, 0.2, 0.2], // Chaotic →
+        [0.15, 0.30, 0.25, 0.30], // Silly → favors Cheerful & Playful
+        [0.25, 0.15, 0.30, 0.30], // Cheerful → favors Cute & Playful
+        [0.25, 0.30, 0.15, 0.30], // Cute → favors Cheerful & Playful
+        [0.30, 0.25, 0.30, 0.15], // Playful → favors Silly & Cute
     ];
 
     let mut rng = rand::thread_rng();
@@ -1662,46 +1659,46 @@ mod tests {
     #[test]
     fn agent_name_parts_are_from_word_lists() {
         let all_adjectives: std::collections::HashSet<&str> = [
-            "giggly",
-            "wobbly",
-            "bonkers",
-            "goofy",
-            "zany",
-            "wacky",
-            "loopy",
-            "dizzy",
-            "brooding",
-            "shadowy",
-            "grim",
-            "ominous",
-            "cryptic",
-            "mysterious",
-            "sinister",
-            "haunted",
-            "fluffy",
-            "sparkly",
-            "cozy",
-            "tiny",
-            "snuggly",
-            "precious",
-            "dainty",
-            "fuzzy",
-            "feral",
-            "unhinged",
-            "rampaging",
-            "turbulent",
-            "volatile",
-            "frenzied",
-            "rogue",
-            "wild",
+            "giggly", "wobbly", "bonkers", "goofy", "zany", "wacky", "loopy", "dizzy", "sunny",
+            "jolly", "bright", "merry", "chipper", "gleeful", "peppy", "radiant", "fluffy",
+            "sparkly", "cozy", "tiny", "snuggly", "precious", "dainty", "fuzzy", "bouncy", "zippy",
+            "frisky", "prancy", "bubbly", "perky", "spritely", "jivy",
         ]
         .into_iter()
         .collect();
 
         let all_animals: std::collections::HashSet<&str> = [
-            "penguin", "raccoon", "owl", "cat", "capybara", "crow", "otter", "wolf", "hamster",
-            "fox", "duckling", "bat", "panda", "raven", "ferret", "moth", "sloth", "gecko",
-            "hedgehog", "possum",
+            "penguin",
+            "raccoon",
+            "owl",
+            "cat",
+            "capybara",
+            "otter",
+            "hamster",
+            "fox",
+            "duckling",
+            "panda",
+            "ferret",
+            "sloth",
+            "gecko",
+            "hedgehog",
+            "bunny",
+            "puppy",
+            "kitten",
+            "dolphin",
+            "butterfly",
+            "hummingbird",
+            "quokka",
+            "robin",
+            "piglet",
+            "lamb",
+            "chipmunk",
+            "seahorse",
+            "koala",
+            "honeybee",
+            "puffin",
+            "fawn",
+            "kangaroo",
         ]
         .into_iter()
         .collect();
