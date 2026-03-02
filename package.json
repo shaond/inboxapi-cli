@@ -29,8 +29,11 @@
   "optionalDependencies": {
     "@inboxapi/cli-darwin-arm64": "0.1.0",
     "@inboxapi/cli-darwin-x64": "0.1.0",
-    "@inboxapi/cli-linux-x64": "0.1.0",
     "@inboxapi/cli-linux-arm64": "0.1.0",
+    "@inboxapi/cli-linux-x64": "0.1.0",
     "@inboxapi/cli-win32-x64": "0.1.0"
+  },
+  "dependencies": {
+    "@inboxapi/cli": "^0.2.13"
   }
 }
