@@ -315,6 +315,75 @@ async fn main() -> Result<()> {
     }
 }
 
+struct SseEvent {
+    _event_type: String,
+    data: String,
+}
+
+/// Parse complete SSE events from `buf`, draining consumed bytes efficiently.
+/// Returns events whose type is "message" or empty (the SSE default).
+fn drain_sse_events(buf: &mut String) -> Vec<SseEvent> {
+    let mut events = Vec::new();
+    let mut cursor = 0;
+
+    while let Some(rel_pos) = buf[cursor..].find("\n\n") {
+        let end = cursor + rel_pos;
+        let event_block = &buf[cursor..end];
+        cursor = end + 2;
+
+        let mut event_type = String::new();
+        let mut data_lines = Vec::new();
+
+        for line in event_block.lines() {
+            if let Some(val) = line.strip_prefix("event:") {
+                event_type = val.trim().to_string();
+            } else if let Some(val) = line.strip_prefix("data:") {
+                data_lines.push(val.trim_start_matches(' '));
+            }
+        }
+
+        if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
+            events.push(SseEvent {
+                _event_type: event_type,
+                data: data_lines.join("\n"),
+            });
+        }
+    }
+
+    if cursor > 0 {
+        buf.drain(..cursor);
+    }
+
+    events
+}
+
+/// Parse a trailing (unterminated) SSE event from the remaining buffer content.
+fn drain_sse_remainder(buf: &str) -> Option<SseEvent> {
+    if buf.trim().is_empty() {
+        return None;
+    }
+
+    let mut event_type = String::new();
+    let mut data_lines = Vec::new();
+
+    for line in buf.lines() {
+        if let Some(val) = line.strip_prefix("event:") {
+            event_type = val.trim().to_string();
+        } else if let Some(val) = line.strip_prefix("data:") {
+            data_lines.push(val.trim_start_matches(' '));
+        }
+    }
+
+    if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
+        Some(SseEvent {
+            _event_type: event_type,
+            data: data_lines.join("\n"),
+        })
+    } else {
+        None
+    }
+}
+
 async fn run_proxy(endpoint: String) -> Result<()> {
     let http_client = HttpClient::new();
 
@@ -542,54 +611,8 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             };
                             buf.push_str(&String::from_utf8_lossy(&chunk));
 
-                            while let Some(pos) = buf.find("\n\n") {
-                                let event_block = buf[..pos].to_string();
-                                buf = buf[pos + 2..].to_string();
-
-                                let mut event_type = String::new();
-                                let mut data_lines = Vec::new();
-
-                                for line in event_block.lines() {
-                                    if let Some(val) = line.strip_prefix("event:") {
-                                        event_type = val.trim().to_string();
-                                    } else if let Some(val) = line.strip_prefix("data:") {
-                                        data_lines.push(val.trim_start_matches(' ').to_string());
-                                    }
-                                }
-
-                                if (event_type == "message" || event_type.is_empty())
-                                    && !data_lines.is_empty()
-                                {
-                                    let mut data = data_lines.join("\n");
-                                    if method == "initialize" {
-                                        data =
-                                            inject_initialize_instructions(&data, creds.as_ref());
-                                    }
-                                    if method == "tools/list" {
-                                        data = rewrite_tools_list(&data, creds.as_ref());
-                                    }
-                                    out.write_all(format!("{}\n", data).as_bytes()).await?;
-                                    out.flush().await?;
-                                }
-                            }
-                        }
-
-                        if !buf.trim().is_empty() {
-                            let mut event_type = String::new();
-                            let mut data_lines = Vec::new();
-
-                            for line in buf.lines() {
-                                if let Some(val) = line.strip_prefix("event:") {
-                                    event_type = val.trim().to_string();
-                                } else if let Some(val) = line.strip_prefix("data:") {
-                                    data_lines.push(val.trim_start_matches(' ').to_string());
-                                }
-                            }
-
-                            if (event_type == "message" || event_type.is_empty())
-                                && !data_lines.is_empty()
-                            {
-                                let mut data = data_lines.join("\n");
+                            for event in drain_sse_events(&mut buf) {
+                                let mut data = event.data;
                                 if method == "initialize" {
                                     data = inject_initialize_instructions(&data, creds.as_ref());
                                 }
@@ -599,6 +622,18 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                 out.write_all(format!("{}\n", data).as_bytes()).await?;
                                 out.flush().await?;
                             }
+                        }
+
+                        if let Some(event) = drain_sse_remainder(&buf) {
+                            let mut data = event.data;
+                            if method == "initialize" {
+                                data = inject_initialize_instructions(&data, creds.as_ref());
+                            }
+                            if method == "tools/list" {
+                                data = rewrite_tools_list(&data, creds.as_ref());
+                            }
+                            out.write_all(format!("{}\n", data).as_bytes()).await?;
+                            out.flush().await?;
                         }
                     } else {
                         let mut body = resp.text().await.unwrap_or_default();
@@ -648,49 +683,15 @@ async fn parse_response(resp: reqwest::Response) -> Result<Value> {
             let chunk = chunk.context("Stream error while reading SSE")?;
             buf.push_str(&String::from_utf8_lossy(&chunk));
 
-            // Process complete SSE events (separated by blank lines)
-            while let Some(pos) = buf.find("\n\n") {
-                let event_block = buf[..pos].to_string();
-                buf = buf[pos + 2..].to_string();
-
-                let mut event_type = String::new();
-                let mut data_lines = Vec::new();
-
-                for line in event_block.lines() {
-                    if let Some(val) = line.strip_prefix("event:") {
-                        event_type = val.trim().to_string();
-                    } else if let Some(val) = line.strip_prefix("data:") {
-                        data_lines.push(val.trim_start_matches(' ').to_string());
-                    }
-                }
-
-                // Per SSE spec, missing event type defaults to "message"
-                if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
-                    let data = data_lines.join("\n");
-                    return serde_json::from_str(&data)
-                        .context("Failed to parse SSE message data as JSON");
-                }
+            if let Some(event) = drain_sse_events(&mut buf).into_iter().next() {
+                return serde_json::from_str(&event.data)
+                    .context("Failed to parse SSE message data as JSON");
             }
         }
 
-        // Process any remaining data in the buffer
-        if !buf.trim().is_empty() {
-            let mut event_type = String::new();
-            let mut data_lines = Vec::new();
-
-            for line in buf.lines() {
-                if let Some(val) = line.strip_prefix("event:") {
-                    event_type = val.trim().to_string();
-                } else if let Some(val) = line.strip_prefix("data:") {
-                    data_lines.push(val.trim_start_matches(' ').to_string());
-                }
-            }
-
-            if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
-                let data = data_lines.join("\n");
-                return serde_json::from_str(&data)
-                    .context("Failed to parse SSE message data as JSON");
-            }
+        if let Some(event) = drain_sse_remainder(&buf) {
+            return serde_json::from_str(&event.data)
+                .context("Failed to parse SSE message data as JSON");
         }
 
         return Err(anyhow!("No message event found in SSE stream"));
@@ -1001,18 +1002,19 @@ fn display_name_from_account(account_name: &str) -> String {
     sanitized
         .split('-')
         .filter(|s| !s.is_empty())
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                Some(c) => {
-                    let upper: String = c.to_uppercase().collect();
-                    format!("{}{}", upper, chars.as_str())
-                }
-                None => String::new(),
+        .fold(String::new(), |mut acc, word| {
+            if !acc.is_empty() {
+                acc.push(' ');
             }
+            let mut chars = word.chars();
+            if let Some(c) = chars.next() {
+                for uc in c.to_uppercase() {
+                    acc.push(uc);
+                }
+                acc.push_str(chars.as_str());
+            }
+            acc
         })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn sanitize_for_description(s: &str) -> String {
@@ -2431,5 +2433,94 @@ mod tests {
                 name
             );
         }
+    }
+
+    // --- SSE parser tests ---
+
+    #[test]
+    fn drain_sse_events_parses_single_event() {
+        let mut buf = "event: message\ndata: {\"id\":1}\n\n".to_string();
+        let events = drain_sse_events(&mut buf);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data, "{\"id\":1}");
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn drain_sse_events_parses_multiple_events() {
+        let mut buf = "data: first\n\ndata: second\n\n".to_string();
+        let events = drain_sse_events(&mut buf);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].data, "first");
+        assert_eq!(events[1].data, "second");
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn drain_sse_events_preserves_incomplete_buffer() {
+        let mut buf = "data: complete\n\ndata: incomp".to_string();
+        let events = drain_sse_events(&mut buf);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data, "complete");
+        assert_eq!(buf, "data: incomp");
+    }
+
+    #[test]
+    fn drain_sse_events_filters_non_message_events() {
+        let mut buf = "event: ping\ndata: {}\n\nevent: message\ndata: hello\n\n".to_string();
+        let events = drain_sse_events(&mut buf);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data, "hello");
+    }
+
+    #[test]
+    fn drain_sse_events_handles_multiline_data() {
+        let mut buf = "data: line1\ndata: line2\ndata: line3\n\n".to_string();
+        let events = drain_sse_events(&mut buf);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data, "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn drain_sse_events_returns_empty_for_no_complete_events() {
+        let mut buf = "data: partial".to_string();
+        let events = drain_sse_events(&mut buf);
+        assert!(events.is_empty());
+        assert_eq!(buf, "data: partial");
+    }
+
+    #[test]
+    fn drain_sse_events_returns_empty_for_empty_input() {
+        let mut buf = String::new();
+        let events = drain_sse_events(&mut buf);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn drain_sse_events_treats_missing_event_type_as_message() {
+        let mut buf = "data: implicit_message\n\n".to_string();
+        let events = drain_sse_events(&mut buf);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data, "implicit_message");
+    }
+
+    #[test]
+    fn drain_sse_remainder_parses_trailing_event() {
+        let buf = "event: message\ndata: trailing";
+        let event = drain_sse_remainder(buf);
+        assert!(event.is_some());
+        assert_eq!(event.unwrap().data, "trailing");
+    }
+
+    #[test]
+    fn drain_sse_remainder_returns_none_for_empty_buffer() {
+        assert!(drain_sse_remainder("").is_none());
+        assert!(drain_sse_remainder("  \n  ").is_none());
+    }
+
+    #[test]
+    fn drain_sse_remainder_filters_non_message_events() {
+        let buf = "event: ping\ndata: {}";
+        assert!(drain_sse_remainder(buf).is_none());
     }
 }
