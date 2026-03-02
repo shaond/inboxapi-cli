@@ -31,14 +31,9 @@ function checkForUpdates() {
           const remote = JSON.parse(data);
           const remoteVersion = remote.version;
           if (remoteVersion && compareVersions(localVersion, remoteVersion) < 0) {
-            process.stderr.write(`[inboxapi] Update available: ${localVersion} → ${remoteVersion}. Updating...\n`);
-            const child = spawn('npm', ['install', '-g', `@inboxapi/cli@${remoteVersion}`], {
-              stdio: 'ignore',
-              detached: true,
-              shell: process.platform === 'win32',
-            });
-            child.unref();
-            process.stderr.write(`[inboxapi] Update installing in background. Restart to use new version.\n`);
+            process.stderr.write(
+              `[inboxapi] Update available: ${localVersion} → ${remoteVersion}. Run: npm install -g @inboxapi/cli@${remoteVersion}\n`
+            );
           }
         } catch {}
       });
