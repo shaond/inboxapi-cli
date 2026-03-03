@@ -113,23 +113,23 @@ fn get_version_cache_path() -> Result<PathBuf> {
     Ok(base_dir.join("inboxapi").join("version-check.json"))
 }
 
-fn read_version_cache() -> Option<VersionCache> {
+async fn read_version_cache() -> Option<VersionCache> {
     let path = get_version_cache_path().ok()?;
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = tokio::fs::read_to_string(path).await.ok()?;
     serde_json::from_str(&content).ok()
 }
 
-fn write_version_cache(latest_version: &str) -> Result<()> {
+async fn write_version_cache(latest_version: &str) -> Result<()> {
     let path = get_version_cache_path()?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        tokio::fs::create_dir_all(parent).await?;
     }
     let cache = VersionCache {
         latest_version: latest_version.to_string(),
         checked_at: chrono::Utc::now().to_rfc3339(),
     };
     let content = serde_json::to_string_pretty(&cache)?;
-    std::fs::write(path, content)?;
+    tokio::fs::write(path, content).await?;
     Ok(())
 }
 
@@ -138,7 +138,8 @@ fn is_cache_stale(cache: &VersionCache) -> bool {
         return true;
     };
     let age = chrono::Utc::now().signed_duration_since(checked);
-    age.num_hours() >= 24
+    // Treat future timestamps as stale (clock skew or tampering)
+    age.num_seconds() < 0 || age.num_hours() >= 24
 }
 
 fn compare_versions(a: &str, b: &str) -> Ordering {
@@ -172,7 +173,7 @@ async fn fetch_latest_version(client: &HttpClient) -> Option<String> {
 }
 
 async fn check_for_update(client: &HttpClient, current_version: &str) -> Option<String> {
-    let cache = read_version_cache();
+    let cache = read_version_cache().await;
     if let Some(ref c) = cache {
         if !is_cache_stale(c) {
             return if is_newer(&c.latest_version, current_version) {
@@ -183,7 +184,7 @@ async fn check_for_update(client: &HttpClient, current_version: &str) -> Option<
         }
     }
     let latest = fetch_latest_version(client).await?;
-    let _ = write_version_cache(&latest);
+    let _ = write_version_cache(&latest).await;
     if is_newer(&latest, current_version) {
         Some(latest)
     } else {
@@ -749,9 +750,6 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                         creds.as_ref(),
                                         update.as_deref(),
                                     );
-                                    if update.is_some() {
-                                        last_notified_version.clone_from(&update);
-                                    }
                                 }
                                 if method == "tools/list" {
                                     data = rewrite_tools_list(&data, creds.as_ref());
@@ -770,9 +768,6 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                     creds.as_ref(),
                                     update.as_deref(),
                                 );
-                                if update.is_some() {
-                                    last_notified_version.clone_from(&update);
-                                }
                             }
                             if method == "tools/list" {
                                 data = rewrite_tools_list(&data, creds.as_ref());
@@ -790,9 +785,6 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                     creds.as_ref(),
                                     update.as_deref(),
                                 );
-                                if update.is_some() {
-                                    last_notified_version.clone_from(&update);
-                                }
                             }
                             if method == "tools/list" {
                                 body = rewrite_tools_list(&body, creds.as_ref());
@@ -2755,6 +2747,15 @@ mod tests {
         let cache = VersionCache {
             latest_version: "1.0.0".to_string(),
             checked_at: "not-a-date".to_string(),
+        };
+        assert!(is_cache_stale(&cache));
+    }
+
+    #[test]
+    fn is_cache_stale_future_timestamp() {
+        let cache = VersionCache {
+            latest_version: "1.0.0".to_string(),
+            checked_at: "2099-01-01T00:00:00+00:00".to_string(),
         };
         assert!(is_cache_stale(&cache));
     }
