@@ -51,7 +51,11 @@ enum Commands {
         folder: String,
     },
     /// Install Claude Code skills and hooks into the current project
-    SetupSkills,
+    SetupSkills {
+        /// Overwrite existing skill and hook files even if they have local edits
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -482,16 +486,16 @@ static HOOKS_SETTINGS: &str = r#"{
   }
 }"#;
 
-fn setup_skills() -> Result<()> {
+fn setup_skills(force: bool) -> Result<()> {
     let base = PathBuf::from(".claude");
 
-    // Write skills (skip if on-disk content already matches)
+    // Write skills (skip if on-disk content already matches, unless --force)
     for (name, content) in SKILLS {
         let dir = base.join("skills").join(name);
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create directory {}", dir.display()))?;
         let path = dir.join("SKILL.md");
-        if path.exists() {
+        if path.exists() && !force {
             let existing = std::fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read existing {}", path.display()))?;
             if existing == *content {
@@ -503,6 +507,7 @@ fn setup_skills() -> Result<()> {
                 name,
                 path.display()
             );
+            println!("    Use --force to overwrite");
             continue;
         }
         std::fs::write(&path, content)
@@ -510,19 +515,20 @@ fn setup_skills() -> Result<()> {
         println!("  Installed skill: /{}  ({})", name, path.display());
     }
 
-    // Write hooks (skip if on-disk content already matches)
+    // Write hooks (skip if on-disk content already matches, unless --force)
     let hooks_dir = base.join("hooks");
     std::fs::create_dir_all(&hooks_dir)
         .with_context(|| format!("Failed to create directory {}", hooks_dir.display()))?;
     for (name, content) in HOOKS {
         let path = hooks_dir.join(name);
-        if path.exists() {
+        if path.exists() && !force {
             let existing = std::fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read existing {}", path.display()))?;
             if existing == *content {
                 println!("  Up to date:      {}", path.display());
             } else {
                 println!("  Skipped (local edits detected): {}", path.display());
+                println!("    Use --force to overwrite");
             }
             continue;
         }
@@ -668,7 +674,7 @@ async fn main() -> Result<()> {
         Some(Commands::Reset) => reset_credentials(),
         Some(Commands::Backup { folder }) => backup_credentials(&folder),
         Some(Commands::Restore { folder }) => restore_credentials(&folder),
-        Some(Commands::SetupSkills) => setup_skills(),
+        Some(Commands::SetupSkills { force }) => setup_skills(force),
         None => {
             // Prefer the endpoint stored in credentials, if available; fall back to CLI default.
             let endpoint = match load_credentials() {

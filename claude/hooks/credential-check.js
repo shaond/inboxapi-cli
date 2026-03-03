@@ -9,6 +9,7 @@ const path = require("path");
 
 function findCredentials() {
   const home = process.env.HOME || process.env.USERPROFILE || "";
+  if (!home) return null;
   const candidates = [];
 
   // Platform config dir
