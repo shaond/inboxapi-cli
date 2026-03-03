@@ -1,6 +1,6 @@
 {
   "name": "@inboxapi/cli-win32-x64",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "InboxAPI CLI binary for Windows x64",
   "os": [
     "win32"
