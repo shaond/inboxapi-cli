@@ -7,7 +7,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::io::{stdin, stdout, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Parser)]
@@ -544,7 +544,7 @@ fn setup_skills() -> Result<()> {
     Ok(())
 }
 
-fn merge_hook_settings(settings_path: &PathBuf) -> Result<String> {
+fn merge_hook_settings(settings_path: &Path) -> Result<String> {
     let new_settings: Value =
         serde_json::from_str(HOOKS_SETTINGS).context("Failed to parse embedded hook settings")?;
 

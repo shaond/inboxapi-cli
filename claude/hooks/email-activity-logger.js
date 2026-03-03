@@ -27,29 +27,35 @@ function main() {
   const timestamp = new Date().toISOString();
   const shortName = toolName.replace("mcp__inboxapi__", "");
 
-  // Build a concise log entry based on the tool type
+  // Build a concise, privacy-preserving log entry (no PII in log output)
   let details = "";
   switch (shortName) {
-    case "send_email":
-      details = `to=${toolInput.to || "?"}, subject="${toolInput.subject || "?"}"`;
+    case "send_email": {
+      const toVal = toolInput.to;
+      const toCount = Array.isArray(toVal) ? toVal.length : toVal ? 1 : 0;
+      details = `to_count=${toCount}, subject_length=${(toolInput.subject || "").length}, body_length=${(toolInput.body || "").length}`;
       break;
+    }
     case "send_reply":
-      details = `email_id=${toolInput.email_id || "?"}, body_length=${(toolInput.body || "").length}`;
+      details = `in_reply_to=${toolInput.in_reply_to || "?"}, body_length=${(toolInput.body || "").length}`;
       break;
-    case "forward_email":
-      details = `email_id=${toolInput.email_id || "?"}, to=${toolInput.to || "?"}`;
+    case "forward_email": {
+      const fwdTo = toolInput.to;
+      const fwdCount = Array.isArray(fwdTo) ? fwdTo.length : fwdTo ? 1 : 0;
+      details = `message_id=${toolInput.message_id || "?"}, to_count=${fwdCount}`;
       break;
+    }
     case "get_email":
-      details = `email_id=${toolInput.email_id || "?"}`;
+      details = `index=${toolInput.index ?? "?"}, message_id=${toolInput.message_id || "?"}`;
       break;
     case "get_emails":
       details = `limit=${toolInput.limit || "default"}`;
       break;
     case "search_emails":
-      details = `query="${toolInput.query || "?"}"`;
+      details = `query_length=${(toolInput.query || toolInput.subject || toolInput.sender || "").length}`;
       break;
     case "get_thread":
-      details = `thread_id=${toolInput.thread_id || "?"}`;
+      details = `message_id=${toolInput.message_id || "?"}`;
       break;
     default: {
       const keys = toolInput && typeof toolInput === "object" ? Object.keys(toolInput) : [];
