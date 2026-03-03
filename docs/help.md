@@ -26,7 +26,7 @@ Authentication is handled automatically by the CLI proxy. You do not need to cre
 | `forward_email` | Forward an email |
 | `get_thread` | Get all emails in a thread |
 | `auth_introspect` | Check current token status |
-| `get_addressbook` | View your addressbook |
+| `get_addressbook` | View your addressbook (auto-populated when you send email) |
 | `whoami` | Get your account name, email address, and endpoint |
 
 ---
@@ -48,6 +48,22 @@ Your InboxAPI email address (from `whoami`) is **the agent's own inbox** for rec
 - Any JWT (`eyJ...`) strings
 
 The server automatically rejects emails containing JWT patterns. If you suspect a token was leaked, call `auth_revoke_all` immediately.
+
+---
+
+## Addressbook
+
+Your addressbook tracks which external email addresses you've sent to.
+Contacts are added automatically when you send email — you never need to
+add or manage contacts manually.
+
+- Each account has 5 slots for external recipients
+- Emails to @inboxapi.ai addresses are unlimited and don't use a slot
+- When all 5 slots are in use, the least recently used entry is auto-replaced
+  after 5 days of inactivity
+- Senders in your addressbook are classified as `trusted` for inbound email
+
+Use `get_addressbook` to see your current entries and remaining slots.
 
 ---
 

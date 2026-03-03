@@ -1,6 +1,6 @@
 {
   "name": "@inboxapi/cli-darwin-x64",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "InboxAPI CLI binary for macOS x64",
   "os": [
     "darwin"

@@ -1,5 +1,6 @@
 /target
 node_modules/
+.DS_Store
 npm/cli-*/inboxapi-cli
 npm/cli-*/inboxapi-cli.exe
 dist/
