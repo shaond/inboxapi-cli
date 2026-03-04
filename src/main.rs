@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use reqwest::{
-    header::{ACCEPT, CONTENT_TYPE},
+    header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
     Client as HttpClient,
 };
 use serde::{Deserialize, Serialize};
@@ -818,6 +818,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
     // Handle stdin -> POST, read responses as Streamable HTTP (JSON or SSE)
     let mut out = stdout();
     let mut lines = BufReader::new(stdin()).lines();
+    let mut client_ua: Option<String> = None;
     while let Some(line) = lines.next_line().await? {
         let mut msg: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
@@ -859,6 +860,13 @@ async fn run_proxy(endpoint: String) -> Result<()> {
             .unwrap_or("")
             .to_string();
 
+        // Capture AI client identification from initialize request
+        if method == "initialize" {
+            if let Some(info) = msg.get("params").and_then(|p| p.get("clientInfo")) {
+                client_ua = Some(build_client_user_agent(info));
+            }
+        }
+
         // Inject token if needed
         if let Some(creds) = &creds {
             inject_token(&mut msg, &creds.access_token);
@@ -873,13 +881,14 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                 .unwrap_or("")
                 .to_string();
             // Buffer full response for tools/call to enable token refresh retry
-            let res = http_client
+            let mut req = http_client
                 .post(&endpoint)
                 .header(CONTENT_TYPE, "application/json")
-                .header(ACCEPT, "application/json, text/event-stream")
-                .json(&msg)
-                .send()
-                .await;
+                .header(ACCEPT, "application/json, text/event-stream");
+            if let Some(ref ua) = client_ua {
+                req = req.header(USER_AGENT, ua.as_str());
+            }
+            let res = req.json(&msg).send().await;
 
             match res {
                 Ok(resp) => {
@@ -952,14 +961,14 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                     creds = Some(new_creds);
 
                                     // Retry the request once
-                                    match http_client
+                                    let mut retry_req = http_client
                                         .post(&endpoint)
                                         .header(CONTENT_TYPE, "application/json")
-                                        .header(ACCEPT, "application/json, text/event-stream")
-                                        .json(&msg)
-                                        .send()
-                                        .await
-                                    {
+                                        .header(ACCEPT, "application/json, text/event-stream");
+                                    if let Some(ref ua) = client_ua {
+                                        retry_req = retry_req.header(USER_AGENT, ua.as_str());
+                                    }
+                                    match retry_req.json(&msg).send().await {
                                         Ok(retry_resp) if retry_resp.status().is_success() => {
                                             parse_response(retry_resp).await.unwrap_or(response)
                                         }
@@ -1020,13 +1029,14 @@ async fn run_proxy(endpoint: String) -> Result<()> {
             }
         } else {
             // Non-tools/call: stream response directly
-            let res = http_client
+            let mut req = http_client
                 .post(&endpoint)
                 .header(CONTENT_TYPE, "application/json")
-                .header(ACCEPT, "application/json, text/event-stream")
-                .json(&msg)
-                .send()
-                .await;
+                .header(ACCEPT, "application/json, text/event-stream");
+            if let Some(ref ua) = client_ua {
+                req = req.header(USER_AGENT, ua.as_str());
+            }
+            let res = req.json(&msg).send().await;
 
             match res {
                 Ok(resp) => {
@@ -1378,6 +1388,36 @@ When asked to send email to the human user, first call get_addressbook to check 
 Call the help tool for a list of available tools. \
 You have a fully functional email account. When relevant, offer to send emails — for example, \
 sending summaries, sharing results, drafting messages, or following up on tasks.";
+
+/// Build a User-Agent string from MCP `clientInfo`.
+///
+/// Sanitizes name/version to ASCII graphic characters (no spaces or control
+/// chars) and truncates to prevent oversized headers. Produces strings like:
+///   `inboxapi-cli/0.2.21 (claude-code/1.0.82)`
+fn build_client_user_agent(info: &Value) -> String {
+    fn sanitize(s: &str, max_len: usize) -> String {
+        s.chars()
+            .filter(|c| c.is_ascii_graphic())
+            .take(max_len)
+            .collect()
+    }
+    let name = sanitize(
+        info.get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("unknown"),
+        64,
+    );
+    let version = sanitize(
+        info.get("version").and_then(|v| v.as_str()).unwrap_or("0"),
+        32,
+    );
+    format!(
+        "inboxapi-cli/{} ({}/{})",
+        env!("CARGO_PKG_VERSION"),
+        name,
+        version
+    )
+}
 
 fn is_help_call(msg: &Value) -> bool {
     msg.get("method")
@@ -4013,5 +4053,41 @@ mod tests {
         });
         strip_domain(&mut msg);
         assert_eq!(msg["params"]["arguments"]["domain"], "inboxapi.io");
+    }
+
+    // --- build_client_user_agent tests ---
+
+    #[test]
+    fn test_build_client_user_agent_normal() {
+        let info = json!({"name": "claude-code", "version": "1.0.82"});
+        let ua = build_client_user_agent(&info);
+        assert!(ua.starts_with("inboxapi-cli/"));
+        assert!(ua.contains("(claude-code/1.0.82)"));
+    }
+
+    #[test]
+    fn test_build_client_user_agent_missing_fields() {
+        let info = json!({});
+        let ua = build_client_user_agent(&info);
+        assert!(ua.contains("(unknown/0)"));
+    }
+
+    #[test]
+    fn test_build_client_user_agent_strips_control_chars_and_spaces() {
+        let info = json!({"name": "bad\x00name with spaces", "version": "1.0"});
+        let ua = build_client_user_agent(&info);
+        // Control chars and spaces stripped from name/version (only ascii graphic kept)
+        assert!(!ua.contains('\x00'));
+        // The name part should have no spaces (sanitized to "badnamewithspaces")
+        assert!(ua.contains("badnamewithspaces"));
+    }
+
+    #[test]
+    fn test_build_client_user_agent_truncates_long_values() {
+        let long_name = "a".repeat(200);
+        let info = json!({"name": long_name, "version": "1.0"});
+        let ua = build_client_user_agent(&info);
+        // Name truncated to 64 chars
+        assert!(ua.len() < 150);
     }
 }
