@@ -886,7 +886,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                     if status == reqwest::StatusCode::ACCEPTED {
                         if let Some(id) = msg.get("id").cloned() {
                             let err_resp = build_jsonrpc_error(
-                                &id,
+                                id,
                                 -32603,
                                 "Server returned 202 Accepted with no response body",
                             );
@@ -903,10 +903,11 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             .unwrap_or_else(|_| "Unknown error".to_string());
                         eprintln!("POST failed ({}): {}", status, err_text);
                         if let Some(id) = msg.get("id").cloned() {
+                            let safe_text = truncate_error_text(&err_text);
                             let err_resp = build_jsonrpc_error(
-                                &id,
+                                id,
                                 -32603,
-                                &format!("Upstream HTTP error {}: {}", status.as_u16(), err_text),
+                                &format!("Upstream HTTP error {}: {}", status.as_u16(), safe_text),
                             );
                             let body = serde_json::to_string(&err_resp)?;
                             out.write_all(format!("{}\n", body).as_bytes()).await?;
@@ -921,7 +922,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             eprintln!("Parse error: {}", e);
                             if let Some(id) = msg.get("id").cloned() {
                                 let err_resp = build_jsonrpc_error(
-                                    &id,
+                                    id,
                                     -32603,
                                     &format!("Failed to parse upstream response: {}", e),
                                 );
@@ -1011,7 +1012,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                     eprintln!("POST Error: {}", e);
                     if let Some(id) = msg.get("id").cloned() {
                         let err_resp =
-                            build_jsonrpc_error(&id, -32603, &format!("Connection error: {}", e));
+                            build_jsonrpc_error(id, -32603, &format!("Connection error: {}", e));
                         let body = serde_json::to_string(&err_resp)?;
                         out.write_all(format!("{}\n", body).as_bytes()).await?;
                         out.flush().await?;
@@ -1034,7 +1035,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                     if status == reqwest::StatusCode::ACCEPTED {
                         if let Some(id) = msg.get("id").cloned() {
                             let err_resp = build_jsonrpc_error(
-                                &id,
+                                id,
                                 -32603,
                                 "Server returned 202 Accepted with no response body",
                             );
@@ -1051,10 +1052,11 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             .unwrap_or_else(|_| "Unknown error".to_string());
                         eprintln!("POST failed ({}): {}", status, err_text);
                         if let Some(id) = msg.get("id").cloned() {
+                            let safe_text = truncate_error_text(&err_text);
                             let err_resp = build_jsonrpc_error(
-                                &id,
+                                id,
                                 -32603,
-                                &format!("Upstream HTTP error {}: {}", status.as_u16(), err_text),
+                                &format!("Upstream HTTP error {}: {}", status.as_u16(), safe_text),
                             );
                             let body = serde_json::to_string(&err_resp)?;
                             out.write_all(format!("{}\n", body).as_bytes()).await?;
@@ -1142,7 +1144,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                     eprintln!("POST Error: {}", e);
                     if let Some(id) = msg.get("id").cloned() {
                         let err_resp =
-                            build_jsonrpc_error(&id, -32603, &format!("Connection error: {}", e));
+                            build_jsonrpc_error(id, -32603, &format!("Connection error: {}", e));
                         let body = serde_json::to_string(&err_resp)?;
                         out.write_all(format!("{}\n", body).as_bytes()).await?;
                         out.flush().await?;
@@ -1753,7 +1755,7 @@ fn rewrite_tools_list(body: &str, creds: Option<&Credentials>) -> String {
     body.to_string()
 }
 
-fn build_jsonrpc_error(id: &Value, code: i64, message: &str) -> Value {
+fn build_jsonrpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": id,
@@ -1762,6 +1764,15 @@ fn build_jsonrpc_error(id: &Value, code: i64, message: &str) -> Value {
             "message": message
         }
     })
+}
+
+fn truncate_error_text(text: &str) -> &str {
+    const MAX_LEN: usize = 200;
+    if text.len() <= MAX_LEN {
+        text
+    } else {
+        &text[..MAX_LEN]
+    }
 }
 
 fn inject_token(msg: &mut Value, token: &str) {
@@ -3469,7 +3480,7 @@ mod tests {
 
     #[test]
     fn test_build_jsonrpc_error_structure() {
-        let err = build_jsonrpc_error(&json!(1), -32603, "Something went wrong");
+        let err = build_jsonrpc_error(json!(1), -32603, "Something went wrong");
         assert_eq!(err["jsonrpc"], "2.0");
         assert_eq!(err["id"], 1);
         assert_eq!(err["error"]["code"], -32603);
@@ -3478,13 +3489,13 @@ mod tests {
 
     #[test]
     fn test_build_jsonrpc_error_preserves_string_id() {
-        let err = build_jsonrpc_error(&json!("req-abc"), -32603, "fail");
+        let err = build_jsonrpc_error(json!("req-abc"), -32603, "fail");
         assert_eq!(err["id"], "req-abc");
     }
 
     #[test]
     fn test_build_jsonrpc_error_preserves_null_id() {
-        let err = build_jsonrpc_error(&Value::Null, -32603, "fail");
+        let err = build_jsonrpc_error(Value::Null, -32603, "fail");
         assert!(err["id"].is_null());
     }
 
@@ -3917,12 +3928,9 @@ mod tests {
             }
         });
         inject_token(&mut msg, "tok-null");
-        // null arguments can't be injected into as an object — token won't be present
-        // This is a graceful no-op since null isn't an object
-        assert!(
-            msg["params"]["arguments"].is_null()
-                || msg["params"]["arguments"]["token"] == "tok-null"
-        );
+        // null arguments can't be coerced into an object, so token is not injected
+        assert!(msg["params"]["arguments"].is_null());
+        assert!(msg["params"]["arguments"].get("token").is_none());
     }
 
     #[test]
