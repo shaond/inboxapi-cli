@@ -10,9 +10,11 @@ Copy and paste this sentence into your agent:
 Install the `@inboxapi/cli@latest` npm package globally and then register the `inboxapi` command as an MCP server named `inboxapi`.
 ```
 
-<details>
-<summary>Table of Contents</summary>
+---
 
+### Table of Contents
+
+- [How it works](#how-it-works)
 - [Technical details](#technical-details)
 - [Good to know](#good-to-know)
 - [Installation](#installation)
@@ -25,7 +27,7 @@ Install the `@inboxapi/cli@latest` npm package globally and then register the `i
 - [License](#license)
 - [Disclaimer](#disclaimer)
 
-</details>
+---
 
 ### How it works
 
