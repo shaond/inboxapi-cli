@@ -863,6 +863,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
         if let Some(creds) = &creds {
             inject_token(&mut msg, &creds.access_token);
         }
+        strip_domain(&mut msg);
 
         if method == "tools/call" {
             let tool_name = msg
@@ -1805,6 +1806,19 @@ fn inject_token(msg: &mut Value, token: &str) {
                             arguments.insert("token".to_string(), json!(token));
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+fn strip_domain(msg: &mut Value) {
+    if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
+        if method == "tools/call" {
+            if let Some(params) = msg.get_mut("params").and_then(|p| p.as_object_mut()) {
+                if let Some(arguments) = params.get_mut("arguments").and_then(|a| a.as_object_mut())
+                {
+                    arguments.remove("domain");
                 }
             }
         }
@@ -3852,8 +3866,7 @@ mod tests {
                 "bcc": ["bcc@b.com"],
                 "from_name": "sender",
                 "html_body": "<p>Hello</p>",
-                "priority": "low",
-                "domain": "custom.com"
+                "priority": "low"
             }),
         );
         inject_token(&mut msg, "tok");
@@ -3866,7 +3879,6 @@ mod tests {
         assert_eq!(args["from_name"], "sender");
         assert_eq!(args["html_body"], "<p>Hello</p>");
         assert_eq!(args["priority"], "low");
-        assert_eq!(args["domain"], "custom.com");
         assert_eq!(args["token"], "tok");
     }
 
@@ -3879,8 +3891,7 @@ mod tests {
                 "to": ["x@y.com"],
                 "cc": ["cc@y.com"],
                 "from_name": "fwder",
-                "note": "FYI",
-                "domain": "custom.com"
+                "note": "FYI"
             }),
         );
         inject_token(&mut msg, "tok");
@@ -3890,7 +3901,6 @@ mod tests {
         assert_eq!(args["cc"], json!(["cc@y.com"]));
         assert_eq!(args["from_name"], "fwder");
         assert_eq!(args["note"], "FYI");
-        assert_eq!(args["domain"], "custom.com");
         assert_eq!(args["token"], "tok");
     }
 
@@ -3967,5 +3977,41 @@ mod tests {
         assert_eq!(args["in_reply_to"], "<msg@test>");
         assert_eq!(args["body"], "reply");
         assert_eq!(args["token"], "tok");
+    }
+
+    // --- strip_domain tests ---
+
+    #[test]
+    fn test_strip_domain_removes_domain() {
+        let mut msg = make_tools_call("get_emails", json!({"domain": "inboxapi.io", "limit": 10}));
+        strip_domain(&mut msg);
+        let args = msg["params"]["arguments"].as_object().unwrap();
+        assert!(args.get("domain").is_none());
+        assert_eq!(args["limit"], 10);
+    }
+
+    #[test]
+    fn test_strip_domain_no_domain_key() {
+        let mut msg = make_tools_call("get_emails", json!({"limit": 10}));
+        strip_domain(&mut msg);
+        let args = msg["params"]["arguments"].as_object().unwrap();
+        assert!(args.get("domain").is_none());
+        assert_eq!(args["limit"], 10);
+    }
+
+    #[test]
+    fn test_strip_domain_skips_non_tool_calls() {
+        let mut msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {
+                "arguments": {
+                    "domain": "inboxapi.io"
+                }
+            }
+        });
+        strip_domain(&mut msg);
+        assert_eq!(msg["params"]["arguments"]["domain"], "inboxapi.io");
     }
 }
