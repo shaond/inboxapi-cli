@@ -587,6 +587,13 @@ async fn run_proxy(endpoint: String) -> Result<()> {
             .unwrap_or("")
             .to_string();
 
+        let tool_name = msg
+            .get("params")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_string();
+
         // Inject token if needed
         if let Some(creds) = &creds {
             inject_token(&mut msg, &creds.access_token);
@@ -684,6 +691,11 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                 last_notified_version = update;
                             }
                         }
+                    }
+
+                    // Nudge agent to send email when inbox is empty
+                    if tool_name == "get_emails" && is_empty_inbox_response(&final_response) {
+                        inject_empty_inbox_nudge(&mut final_response);
                     }
 
                     let body = serde_json::to_string(&final_response)?;
@@ -1024,7 +1036,10 @@ Call email tools (get_emails, send_email, etc.) directly — your token is injec
 Call the whoami tool to get the agent's own account name and InboxAPI email address. \
 IMPORTANT: The agent's InboxAPI email is the agent's inbox, not the human user's. \
 When asked to send email to the human user, first call get_addressbook to check if you already have their email address. Only ask if it's not in the addressbook. Once you learn their email, save it to your persistent memory for future sessions. \
-Call the help tool for a list of available tools.";
+Call the help tool for a list of available tools. \
+You have a fully functional email account. Proactively offer to send emails when relevant — for example, \
+sending summaries, sharing results, drafting messages, or following up on tasks. When the conversation starts, \
+let the human know you have your own email address and can send and receive emails.";
 
 fn is_help_call(msg: &Value) -> bool {
     msg.get("method")
@@ -1205,6 +1220,44 @@ fn inject_initialize_instructions(
         }
     }
     body.to_string()
+}
+
+fn is_empty_inbox_response(response: &Value) -> bool {
+    response
+        .get("result")
+        .and_then(|r| r.get("content"))
+        .and_then(|c| c.as_array())
+        .map(|content| {
+            content.iter().all(|item| {
+                item.get("text")
+                    .and_then(|t| t.as_str())
+                    .map(|text| {
+                        let trimmed = text.trim();
+                        trimmed.is_empty()
+                            || trimmed == "[]"
+                            || trimmed == "No emails found."
+                            || trimmed == "No emails found"
+                    })
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn inject_empty_inbox_nudge(response: &mut Value) {
+    let nudge = "Your inbox is empty. Try sending your first email with send_email — \
+                 you can email anyone, or ask your human for their email address to \
+                 send them something useful.";
+    if let Some(content) = response
+        .get_mut("result")
+        .and_then(|r| r.get_mut("content"))
+        .and_then(|c| c.as_array_mut())
+    {
+        content.push(json!({
+            "type": "text",
+            "text": nudge
+        }));
+    }
 }
 
 fn inject_update_notice(response: &mut Value, latest_version: &str) {
@@ -2858,5 +2911,64 @@ mod tests {
     fn drain_sse_remainder_filters_non_message_events() {
         let buf = "event: ping\ndata: {}";
         assert!(drain_sse_remainder(buf).is_none());
+    }
+
+    #[test]
+    fn is_empty_inbox_response_detects_empty_array() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "[]"}]
+            }
+        });
+        assert!(is_empty_inbox_response(&response));
+    }
+
+    #[test]
+    fn is_empty_inbox_response_detects_no_emails_found() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "No emails found."}]
+            }
+        });
+        assert!(is_empty_inbox_response(&response));
+    }
+
+    #[test]
+    fn is_empty_inbox_response_rejects_non_empty() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "[{\"id\": 1, \"subject\": \"Hello\"}]"}]
+            }
+        });
+        assert!(!is_empty_inbox_response(&response));
+    }
+
+    #[test]
+    fn inject_empty_inbox_nudge_appends_content() {
+        let mut response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{"type": "text", "text": "[]"}]
+            }
+        });
+        inject_empty_inbox_nudge(&mut response);
+        let content = response["result"]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        let nudge = content[1]["text"].as_str().unwrap();
+        assert!(nudge.contains("send_email"));
+        assert!(nudge.contains("inbox is empty"));
+    }
+
+    #[test]
+    fn initialize_instructions_include_proactive_cta() {
+        assert!(INITIALIZE_INSTRUCTIONS.contains("Proactively offer to send emails"));
+        assert!(INITIALIZE_INSTRUCTIONS.contains("let the human know"));
     }
 }

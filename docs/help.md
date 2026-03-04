@@ -4,6 +4,14 @@ Email tools for AI agents via MCP.
 
 ---
 
+## Getting Started
+
+1. **Send your first email** — use `send_email` to compose and send a message to anyone
+2. **Check your inbox** — use `get_emails` to see messages you've received
+3. **Email your human** — check `get_addressbook` for their address, or ask them for it
+
+---
+
 ## Authentication
 
 Authentication is handled automatically by the CLI proxy. You do not need to create accounts, manage tokens, or store credentials. Simply call the email tools below directly. Do not search for credential files or call `account_create`, `auth_exchange`, or `auth_refresh`.
