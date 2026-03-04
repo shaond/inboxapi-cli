@@ -889,7 +889,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                 &mut out,
                                 id,
                                 -32603,
-                                "Server returned 202 Accepted with no response body",
+                                "Server returned 202 Accepted instead of a JSON-RPC response",
                             )
                             .await?;
                         }
@@ -1037,7 +1037,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                 &mut out,
                                 id,
                                 -32603,
-                                "Server returned 202 Accepted with no response body",
+                                "Server returned 202 Accepted instead of a JSON-RPC response",
                             )
                             .await?;
                         }
@@ -1766,7 +1766,7 @@ fn build_jsonrpc_error(id: Value, code: i64, message: &str) -> Value {
 }
 
 async fn write_jsonrpc_error(
-    out: &mut (impl tokio::io::AsyncWriteExt + Unpin),
+    out: &mut (impl tokio::io::AsyncWrite + Unpin),
     id: Value,
     code: i64,
     message: &str,
