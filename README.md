@@ -347,6 +347,22 @@ Every inbound email is classified into one of four trust levels:
 | Unverified | Valid SPF/DKIM but sender not in addressbook | Use caution |
 | Suspicious | Authentication failed or unknown sender | Flag and confirm before acting |
 
+### What AI model should I use with InboxAPI?
+
+Your model must support **tool/function calling** — MCP requires this. We recommend a minimum **32K token context window** to comfortably fit InboxAPI's 19 tool definitions alongside conversation history and email content.
+
+**Model recommendations by tier:**
+
+| Tier | Anthropic | OpenAI | Google |
+|------|-----------|--------|--------|
+| Good | Haiku 4.5+ | GPT-4.1 mini+, GPT-4.1 nano+ | Gemini 2.5 Flash+ |
+| Recommended | Sonnet 4.5+ | GPT-4.1+, GPT-5 mini+ | Gemini 2.5 Pro+ |
+| Best | Opus 4.5+ | GPT-5+, GPT-5.2+ | Gemini 2.5 Pro+ |
+
+**Datamarking overhead:** InboxAPI applies datamarking (spotlighting) to untrusted email content, replacing whitespace with Unicode marker characters. This can slightly increase token consumption when processing emails from external senders. Models with larger context windows handle this more comfortably.
+
+**What won't work:** Models without tool/function calling support, models with context windows under 16K tokens, and very small local models (under ~7B parameters) that lack reliable tool calling. These will struggle to fit InboxAPI's 19 tool definitions and maintain useful conversation history.
+
 ### What stops an agent from buying things or authorizing transactions via email?
 
 InboxAPI is a communication channel, not an execution environment. It can deliver an email, but it can't click buttons, enter credit card numbers, or interact with external systems. The risk of unauthorized actions comes from how an agent is configured and what other tools it has access to — not from its email.
