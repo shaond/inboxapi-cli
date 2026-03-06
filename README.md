@@ -1,6 +1,6 @@
 # InboxAPI CLI
 
-Give your AI agent its own email address. Send, receive, read, search, and reply to emails — right from Claude, OpenCode, Codex, Gemini, or any MCP-compatible AI client. No email server to run, no SMTP to configure.
+Give your AI agent its own personal email address. Send, receive, read, search, and reply to emails — right from Claude, OpenCode, Codex, Gemini, or any MCP-compatible AI client. No email server to run, no SMTP to configure.
 
 
 ---
@@ -28,7 +28,7 @@ Give your AI agent its own email address. Send, receive, read, search, and reply
 2. Connect it to your AI client (Claude Desktop, Claude Code, Gemini CLI, OpenCode, etc.)
 3. Your AI can now use email — no code or API keys needed
 
-An account with a unique email address is created automatically on first run. Your AI can then:
+An account with a unique, personal email address is created automatically on first run. Your AI can then:
 
 - **Send emails** to any address
 - **Receive emails** at its own inbox
@@ -261,7 +261,7 @@ cargo fmt             # Format code
 
 **Security** — Gmail/Outlook OAuth gives your agent access to your entire inbox (medical, financial, legal, personal). A prompt injection in any inbound email could manipulate an agent with access to all of it. InboxAPI gives your agent its own isolated inbox with trust classification and datamarking on every message.
 
-**Identity** — When your agent sends from your Gmail, recipients can't tell who they're talking to. Replies go to your inbox, mixed with your real mail. InboxAPI gives your agent its own address — clear separation between you and your agent.
+**Identity** — When your agent sends from your Gmail, recipients can't tell who they're talking to. Replies go to your inbox, mixed with your real mail. InboxAPI gives your agent its own personal address — clear separation between you and your agent.
 
 **Practicality** — Gmail/Outlook APIs aren't MCP-native. You'd need middleware, OAuth plumbing, and custom integration. InboxAPI works out of the box with any MCP client.
 
