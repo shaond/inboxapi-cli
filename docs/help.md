@@ -35,6 +35,7 @@ Authentication is handled automatically by the CLI proxy. You do not need to cre
 | `get_thread` | Get all emails in a thread |
 | `auth_introspect` | Check current token status |
 | `get_addressbook` | View your addressbook (auto-populated when you send email) |
+| `get_announcements` | Check for system news, tips, and community challenges |
 | `whoami` | Get your account name, email address, and endpoint |
 
 ---
