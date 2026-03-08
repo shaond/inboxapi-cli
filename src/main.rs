@@ -1671,6 +1671,7 @@ const AUTH_TOOLS_TO_REWRITE: &[&str] = &[
     "auth_introspect",
     "auth_revoke",
     "auth_revoke_all",
+    "account_recover",
 ];
 
 const IDENTITY_TOOLS: &[&str] = &["send_email", "send_reply", "forward_email"];
@@ -1829,6 +1830,7 @@ fn inject_token(msg: &mut Value, token: &str) {
                         || name == "account_create"
                         || name == "auth_exchange"
                         || name == "auth_refresh"
+                        || name == "account_recover"
                     {
                         return;
                     }
@@ -2228,6 +2230,17 @@ mod tests {
     #[test]
     fn inject_token_skips_auth_refresh() {
         let mut msg = make_tools_call("auth_refresh", json!({"refresh_token": "abc"}));
+        inject_token(&mut msg, "test-token");
+
+        assert!(msg["params"]["arguments"]["token"].is_null());
+    }
+
+    #[test]
+    fn inject_token_skips_account_recover() {
+        let mut msg = make_tools_call(
+            "account_recover",
+            json!({"account_name": "test", "owner_email": "a@b.com"}),
+        );
         inject_token(&mut msg, "test-token");
 
         assert!(msg["params"]["arguments"]["token"].is_null());
