@@ -1393,7 +1393,7 @@ sending summaries, sharing results, drafting messages, or following up on tasks.
 ///
 /// Sanitizes name/version to ASCII graphic characters (no spaces or control
 /// chars) and truncates to prevent oversized headers. Produces strings like:
-///   `inboxapi-cli/0.2.22 (claude-code/1.0.82)`
+///   `inboxapi-cli/0.2.23 (claude-code/1.0.82)`
 fn build_client_user_agent(info: &Value) -> String {
     fn sanitize(s: &str, max_len: usize) -> String {
         s.chars()
