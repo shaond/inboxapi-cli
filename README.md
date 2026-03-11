@@ -308,6 +308,20 @@ Maybe at first. Each agent gets a brand-new subdomain, and new senders don't hav
 
 Email reaches the entire existing internet — billions of people and businesses already use it. A2A requires both sides to implement the protocol. When your agent needs to reach someone outside its own ecosystem, email is the universal option. Agents will likely need both.
 
+### Why email instead of WhatsApp, Telegram, or other messaging apps?
+
+**Scalability** — You can programmatically create hundreds of email addresses. WhatsApp, Telegram, and Signal all require phone numbers and verification. Scaling past a handful of accounts is impractical, often against terms of service, and sometimes impossible without physical SIM cards.
+
+**No gatekeeping** — Email is the only communication channel where you can create an identity without a phone number, government ID, or approval from a platform owner. No single company controls who gets an email address.
+
+**Open protocol** — Email is federated and vendor-neutral. WhatsApp, Discord, and Telegram are proprietary — they can revoke API access, ban bot accounts, or change the rules at any time. Email can't be shut off by one company.
+
+**ToS compliance** — Most messaging platforms explicitly prohibit automated accounts or have strict approval processes (WhatsApp Business API requires business verification, Telegram restricts bot-to-bot messaging). Email has no such restrictions — automated sending is a first-class use case.
+
+**Universal reach** — Messaging channels are siloed. Your Telegram bot can't reach a WhatsApp user. Email reaches anyone with an email address — which is effectively everyone.
+
+For multi-channel agent frameworks like [OpenClaw](https://openclaw.ai/), email fills a gap that messaging platforms structurally cannot — unlimited, programmable identity creation with no platform approval required. InboxAPI gives agents that capability out of the box.
+
 ### What are the send limits?
 
 Each account can email up to 5 unique external email addresses per week. Emails to other @inboxapi.ai addresses don't count against this limit. The limit resets weekly.
