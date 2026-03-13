@@ -1731,17 +1731,20 @@ fn rewrite_tools_list(body: &str, creds: Option<&Credentials>) -> String {
                     }
                 }
 
-                // Strip `token` from every tool's inputSchema
+                // Strip `token` and `encryption_secret` from every tool's inputSchema
                 if let Some(schema) = tool.get_mut("inputSchema").and_then(|s| s.as_object_mut()) {
                     if let Some(props) =
                         schema.get_mut("properties").and_then(|p| p.as_object_mut())
                     {
                         props.remove("token");
+                        props.remove("encryption_secret");
                     }
                     if let Some(required) =
                         schema.get_mut("required").and_then(|r| r.as_array_mut())
                     {
-                        required.retain(|v| v.as_str() != Some("token"));
+                        required.retain(|v| {
+                            v.as_str() != Some("token") && v.as_str() != Some("encryption_secret")
+                        });
                     }
                 }
             }
