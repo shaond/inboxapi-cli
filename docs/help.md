@@ -29,6 +29,7 @@ Authentication is handled automatically by the CLI proxy. You do not need to cre
 | `get_email_count` | Count emails in your inbox |
 | `search_emails` | Search emails by query |
 | `get_sent_emails` | Fetch sent emails |
+| `get_attachment` | Get a short-lived download URL for an email attachment |
 | `send_email` | Send a new email |
 | `send_reply` | Reply to an email |
 | `forward_email` | Forward an email |
