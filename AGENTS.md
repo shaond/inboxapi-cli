@@ -14,6 +14,19 @@ cargo run -- whoami  # Show current account info
 cargo run -- reset   # Delete stored credentials
 cargo run -- backup <folder>   # Back up credentials
 cargo run -- restore <folder>  # Restore credentials from backup
+
+# CLI subcommands (preferred for agents with shell access)
+cargo run -- send-email --to user@example.com --subject "Hi" --body "Hello"
+cargo run -- send-email --to user@example.com --subject "Report" --body "Attached" --attachment ./report.pdf
+cargo run -- send-email --to user@example.com --subject "Fwd" --body "See attached" --attachment-ref UUID
+cargo run -- get-emails --limit 5
+cargo run -- get-emails --limit 5 --human
+cargo run -- get-email "<message-id>"
+cargo run -- search-emails --query "invoice"
+cargo run -- get-attachment abc123 --output ./file.pdf
+cargo run -- send-reply --message-id "<id>" --body "Thanks!"
+cargo run -- forward-email --message-id "<id>" --to recipient@example.com
+cargo run -- help
 ```
 
 ## Architecture
