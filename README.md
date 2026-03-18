@@ -13,6 +13,7 @@ Give your AI agent its own personal email address. Send, receive, read, search, 
 - [Installation](#installation)
 - [Getting Started](#getting-started)
 - [Commands](#commands)
+- [CLI Commands](#cli-commands)
 - [Usage with MCP Clients](#usage-with-mcp-clients)
 - [Skills for Claude Code](#skills-for-claude-code)
 - [Development](#development)
@@ -45,6 +46,7 @@ The CLI acts as a local bridge between your AI client and the [InboxAPI](https:/
 - **This is your agent's personal email** — InboxAPI gives your AI agent its own email address for personal use. It is not a transactional email service — don't use it for bulk sending, marketing, or application notifications.
 - **Weekly send limit** — Each account can send to up to five unique email addresses per week. This resets weekly.
 - **Check your spam folder** — Each agent gets its own subdomain, and new subdomains don't have email reputation yet. Early messages may land in your recipient's spam or junk folder. Adding your agent's email address to your contacts or allowlist helps. Delivery improves over time as recipients interact with your agent's emails.
+- **Attachments** — Send attachments via CLI subcommands using `--attachment` (local files) or `--attachment-ref` (server-side attachments by ID).
 - **No rich text yet** — Emails are sent as plain text only. Rich text (HTML) support is coming soon.
 - **Owner verification** — Link your email to your agent's account with `verify_owner` to enable account recovery and remove trial restrictions. Recommended as a first step after setup.
 
@@ -152,9 +154,70 @@ inboxapi setup-skills
 inboxapi setup-skills --force  # Overwrite existing skills and hooks
 ```
 
+## CLI Commands
+
+For agents with shell access, CLI subcommands are the simplest way to use InboxAPI — no MCP, JSON-RPC, or base64 knowledge needed.
+
+### `send-email`
+
+```bash
+inboxapi send-email --to user@example.com --subject "Hello" --body "Hi there"
+inboxapi send-email --to user@example.com --subject "Report" --body "See attached" --attachment ./report.pdf
+inboxapi send-email --to user@example.com --subject "Fwd" --body "See attached" --attachment-ref 9f0206bb-...
+inboxapi send-email --to "a@b.com, c@d.com" --subject "Hi" --body "Hello" --cc "cc@b.com" --priority high
+```
+
+Supports `--cc`, `--bcc`, `--html-body`, `--from-name`, `--priority`, `--attachment` (local files, repeatable), and `--attachment-ref` (server-side attachment IDs, repeatable).
+
+### `get-emails`
+
+```bash
+inboxapi get-emails --limit 5
+inboxapi get-emails --limit 5 --human
+```
+
+### `get-email`
+
+```bash
+inboxapi get-email "<message-id>"
+```
+
+### `search-emails`
+
+```bash
+inboxapi search-emails --query "invoice" --limit 10
+```
+
+### `get-attachment`
+
+```bash
+inboxapi get-attachment abc123                      # prints signed URL as JSON
+inboxapi get-attachment abc123 --output ./file.pdf  # downloads to file
+```
+
+### `send-reply`
+
+```bash
+inboxapi send-reply --message-id "<msg-id>" --body "Thanks!"
+```
+
+### `forward-email`
+
+```bash
+inboxapi forward-email --message-id "<msg-id>" --to recipient@example.com --note "FYI"
+```
+
+### `help`
+
+```bash
+inboxapi help  # CLI-focused help with examples
+```
+
+All CLI commands support the `--human` flag for human-readable output instead of JSON.
+
 ## Usage with MCP Clients
 
-InboxAPI CLI works as an MCP STDIO transport. Point your MCP client at the `inboxapi` binary:
+InboxAPI CLI also works as an MCP STDIO transport. Point your MCP client at the `inboxapi` binary:
 
 **Claude Desktop** (`claude_desktop_config.json`):
 

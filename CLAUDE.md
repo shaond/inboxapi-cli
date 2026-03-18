@@ -12,6 +12,14 @@ Rust-based STDIO proxy that bridges JSON-RPC (MCP protocol) over STDIO to the re
 - `cargo run -- reset` — delete stored credentials (with optional backup prompt)
 - `cargo run -- backup <folder>` — back up credentials to a folder
 - `cargo run -- restore <folder>` — restore credentials from a backup folder
+- `cargo run -- send-email --to user@example.com --subject "Hi" --body "Hello"` — send an email
+- `cargo run -- get-emails --limit 5` — list inbox emails
+- `cargo run -- get-email "<message-id>"` — get a single email
+- `cargo run -- search-emails --query "keyword"` — search emails
+- `cargo run -- get-attachment <id> --output ./file.pdf` — download an attachment
+- `cargo run -- send-reply --message-id "<id>" --body "Reply"` — reply to an email
+- `cargo run -- forward-email --message-id "<id>" --to user@example.com` — forward an email
+- `cargo run -- help` — show CLI help with examples
 
 ## Architecture
 - **Single-file proxy** (`src/main.rs`): reads JSON-RPC from stdin, POSTs to remote endpoint, streams SSE responses to stdout. Injects stored access tokens into `tools/call` arguments.

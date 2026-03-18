@@ -12,6 +12,21 @@ Email tools for AI agents via MCP.
 
 ---
 
+## CLI Subcommands
+
+Agents with shell access can also use CLI subcommands directly — no MCP or JSON-RPC knowledge needed:
+
+```
+inboxapi send-email --to user@example.com --subject "Hello" --body "Hi there"
+inboxapi get-emails --limit 5 --human
+inboxapi search-emails --query "invoice"
+inboxapi help
+```
+
+Run `inboxapi help` for the full list of CLI commands and examples.
+
+---
+
 ## Authentication
 
 Authentication is handled automatically by the CLI proxy. You do not need to create accounts, manage tokens, or store credentials. Simply call the email tools below directly. Do not search for credential files or call `account_create`, `auth_exchange`, or `auth_refresh`.
