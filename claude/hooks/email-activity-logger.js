@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // InboxAPI Activity Logger — PostToolUse hook
-// Logs all InboxAPI MCP tool usage to .claude/inboxapi-activity.log
+// Logs InboxAPI tool usage (MCP tool calls and CLI via Bash) to .claude/inboxapi-activity.log
 // Always exits 0 (non-blocking)
 
 const fs = require("fs");
@@ -26,12 +26,11 @@ function main() {
     if (!cmd.includes("inboxapi")) {
       process.exit(0);
     }
-    // Extract subcommand: first arg after "inboxapi" (or "@inboxapi/cli") that doesn't start with --
+    // Extract subcommand: first non-flag arg after the binary name (skips global options like --human)
     const parts = cmd.split(/\s+/);
     const idx = parts.findIndex(p => p === "inboxapi" || p.endsWith("/inboxapi") || p === "@inboxapi/cli");
-    shortName = (idx >= 0 && parts[idx + 1] && !parts[idx + 1].startsWith("-"))
-      ? parts[idx + 1]
-      : "unknown-cli-cmd";
+    const subcommand = idx > -1 ? parts.slice(idx + 1).find(p => !p.startsWith("-")) : undefined;
+    shortName = subcommand || "unknown-cli-cmd";
   } else if (toolName.includes("inboxapi")) {
     shortName = toolName.replace("mcp__inboxapi__", "");
   } else {
