@@ -19,20 +19,6 @@ Rust-based STDIO proxy that bridges JSON-RPC (MCP protocol) over STDIO to the re
 - `cargo run -- get-attachment <id> --output ./file.pdf` — download an attachment
 - `cargo run -- send-reply --message-id "<id>" --body "Reply"` — reply to an email
 - `cargo run -- forward-email --message-id "<id>" --to user@example.com` — forward an email
-- `cargo run -- get-last-email` — get the most recent email
-- `cargo run -- get-email-count` — get inbox email count (optional `--since`)
-- `cargo run -- get-sent-emails --limit 10` — list sent emails
-- `cargo run -- get-thread --message-id "<id>"` — get an email thread
-- `cargo run -- get-addressbook` — get address book contacts
-- `cargo run -- get-announcements` — get InboxAPI announcements
-- `cargo run -- auth-introspect` — introspect current access token
-- `cargo run -- auth-revoke --token "<token>"` — revoke a specific token
-- `cargo run -- auth-revoke-all` — revoke all tokens
-- `cargo run -- account-recover --name "x" --email "y"` — recover a lost account
-- `cargo run -- verify-owner --email "x"` — verify email ownership
-- `cargo run -- enable-encryption` — enable email encryption
-- `cargo run -- reset-encryption` — reset email encryption
-- `cargo run -- rotate-encryption --old-secret "x" --new-secret "y"` — rotate encryption secret
 - `cargo run -- help` — show CLI help with examples
 
 ## Architecture

@@ -19,26 +19,13 @@ function main() {
   const toolInput = data.tool_input || {};
   const cwd = data.cwd || process.cwd();
 
-  // Only log inboxapi tools (MCP or CLI via Bash)
-  let shortName;
-  if (toolName === "Bash") {
-    const cmd = (toolInput.command || "");
-    if (!cmd.includes("inboxapi")) {
-      process.exit(0);
-    }
-    // Extract subcommand: first arg after "inboxapi" that doesn't start with --
-    const parts = cmd.split(/\s+/);
-    const idx = parts.findIndex(p => p === "inboxapi" || p.endsWith("/inboxapi"));
-    shortName = (idx >= 0 && parts[idx + 1] && !parts[idx + 1].startsWith("-"))
-      ? parts[idx + 1]
-      : "unknown-cli-cmd";
-  } else if (toolName.includes("inboxapi")) {
-    shortName = toolName.replace("mcp__inboxapi__", "");
-  } else {
+  // Only log inboxapi tools
+  if (!toolName.includes("inboxapi")) {
     process.exit(0);
   }
 
   const timestamp = new Date().toISOString();
+  const shortName = toolName.replace("mcp__inboxapi__", "");
 
   // Build a concise log entry (logs identifiers and lengths, not email content)
   let details = "";

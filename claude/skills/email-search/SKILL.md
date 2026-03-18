@@ -14,13 +14,13 @@ Search emails using natural language and present results clearly.
 1. Take the user's query from `$ARGUMENTS`
    - If no arguments provided, ask: "What are you looking for?"
 
-2. Translate the natural language query into CLI flags for `search-emails`:
-   - Extract sender hints (e.g., "from John" -> `--sender "John"`)
-   - Extract subject hints (e.g., "about invoices" -> `--subject "invoices"`)
-   - Extract date hints (e.g., "last week", "yesterday" -> `--since "..."`, `--until "..."`)
-   - Combine with `--limit` as needed
+2. Translate the natural language query into a `mcp__inboxapi__search_emails` call:
+   - Extract sender hints (e.g., "from John" -> search by sender)
+   - Extract subject hints (e.g., "about invoices" -> search by subject)
+   - Extract date hints (e.g., "last week", "yesterday")
+   - Use the full query as the search term
 
-3. Run: `npx -y @inboxapi/cli search-emails` with the appropriate flags (`--sender "..."`, `--subject "..."`, `--since "..."`, `--until "..."`)
+3. Call `mcp__inboxapi__search_emails` with the interpreted parameters
 
 4. Present results in a formatted table:
    ```
@@ -30,13 +30,9 @@ Search emails using natural language and present results clearly.
 
 5. After showing results, offer: "Would you like to read any of these emails? Provide the number."
 
-6. If the user picks one, run `npx -y @inboxapi/cli get-email "<message-id>"` with the email ID
+6. If the user picks one, call `mcp__inboxapi__get_email` with the email ID
 
 7. If no results, suggest alternative searches or broader terms
-
-## Notes
-
-- All CLI commands output JSON by default — parse the JSON response to extract the relevant fields
 
 ## Examples
 

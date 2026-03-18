@@ -31,7 +31,7 @@ Configure InboxAPI email tools for this Claude Code project.
 3. **Install skills**: Run `npx -y @inboxapi/cli setup-skills` to copy bundled skills and hooks into the project's `.claude/` directory
 
 4. **Verify credentials**:
-   - Run: `npx -y @inboxapi/cli whoami` to check if credentials are set up
+   - Call `mcp__inboxapi__whoami` to check if credentials are set up
    - If not authenticated, instruct the user: "Run `npx -y @inboxapi/cli login` in a terminal to authenticate"
 
 5. **Show summary**:
@@ -61,7 +61,6 @@ Configure InboxAPI email tools for this Claude Code project.
 
 ## Notes
 
-- All CLI commands output JSON by default — parse the JSON response to extract the relevant fields
 - This skill is safe to run multiple times — it won't duplicate entries or overwrite local edits
 - Existing `.mcp.json` entries, skill files, and hook files with local edits are preserved
 - `.claude/settings.json` is merged with new hook config (may be reformatted when hooks are updated)

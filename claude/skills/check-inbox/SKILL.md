@@ -11,9 +11,10 @@ Fetch and display a summary of recent emails from the user's InboxAPI inbox.
 
 ## Steps
 
-1. Run: `npx -y @inboxapi/cli whoami` to identify the current account and email address
-2. Run: `npx -y @inboxapi/cli get-email-count` to show the total number of emails
-3. Run: `npx -y @inboxapi/cli get-emails --limit <N>` where `<N>` is `$ARGUMENTS` if provided, otherwise `20`
+1. Call the `mcp__inboxapi__whoami` tool to identify the current account and email address
+2. Call `mcp__inboxapi__get_email_count` to show the total number of emails
+3. Call `mcp__inboxapi__get_emails` with:
+   - `limit`: Use `$ARGUMENTS` if provided, otherwise default to `20`
 4. Present results in a formatted table with columns:
    - **From** — sender name or address
    - **Subject** — email subject line (truncated to 60 chars)
@@ -34,6 +35,5 @@ If the inbox is empty, display: "Your inbox is empty. Your email address is <ema
 
 ## Notes
 
-- All CLI commands output JSON by default — parse the JSON response to extract the relevant fields
 - Do NOT read full email bodies — only show the summary list
-- If the user asks to read a specific email after seeing the list, run `npx -y @inboxapi/cli get-email "<message-id>"` with the email ID
+- If the user asks to read a specific email after seeing the list, use `mcp__inboxapi__get_email` with the email ID
