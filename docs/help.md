@@ -19,7 +19,7 @@ Agents with shell access can also use CLI subcommands directly — no MCP or JSO
 ```
 inboxapi send-email --to user@example.com --subject "Hello" --body "Hi there"
 inboxapi get-emails --limit 5 --human
-inboxapi search-emails --query "invoice"
+inboxapi search-emails --subject "invoice"
 inboxapi help
 ```
 

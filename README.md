@@ -185,7 +185,7 @@ inboxapi get-email "<message-id>"
 ### `search-emails`
 
 ```bash
-inboxapi search-emails --query "invoice" --limit 10
+inboxapi search-emails --subject "invoice" --limit 10
 ```
 
 ### `get-attachment`

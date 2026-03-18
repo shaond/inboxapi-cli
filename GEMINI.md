@@ -23,7 +23,7 @@ cargo run -- whoami  # Show current account
 cargo run -- send-email --to user@example.com --subject "Hi" --body "Hello"
 cargo run -- get-emails --limit 5
 cargo run -- get-email "<message-id>"
-cargo run -- search-emails --query "keyword"
+cargo run -- search-emails --subject "keyword"
 cargo run -- get-attachment <id> --output ./file.pdf
 cargo run -- send-reply --message-id "<id>" --body "Reply"
 cargo run -- forward-email --message-id "<id>" --to user@example.com

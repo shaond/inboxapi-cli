@@ -14,6 +14,7 @@ use tokio::io::{stdin, stdout, AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[command(name = "inboxapi", bin_name = "inboxapi")]
 #[command(version)]
 #[command(about = "📧 Email for your AI 🤖", long_about = None)]
+#[command(disable_help_subcommand = true)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -108,11 +109,20 @@ enum Commands {
         /// The message ID to retrieve
         message_id: String,
     },
-    /// Search emails
+    /// Search emails by sender, subject, or date range
     SearchEmails {
-        /// Search query
+        /// Filter by sender (substring match, case-insensitive)
         #[arg(long)]
-        query: String,
+        sender: Option<String>,
+        /// Filter by subject (substring match, case-insensitive)
+        #[arg(long)]
+        subject: Option<String>,
+        /// Filter: emails on or after this ISO 8601 datetime
+        #[arg(long)]
+        since: Option<String>,
+        /// Filter: emails on or before this ISO 8601 datetime
+        #[arg(long)]
+        until: Option<String>,
         /// Maximum number of results
         #[arg(long)]
         limit: Option<u32>,
@@ -1051,8 +1061,9 @@ async fn resolve_attachment_ref(
     let data: Value =
         serde_json::from_str(&text).context("Failed to parse get_attachment response")?;
 
-    let url = data["url"]
+    let url = data["download_url"]
         .as_str()
+        .or_else(|| data["url"].as_str())
         .ok_or_else(|| anyhow!("No URL in get_attachment response"))?;
     let filename = data["filename"]
         .as_str()
@@ -1060,7 +1071,12 @@ async fn resolve_attachment_ref(
         .to_string();
     let content_type = data["content_type"]
         .as_str()
-        .unwrap_or("application/octet-stream")
+        .unwrap_or_else(|| {
+            // Guess from filename if content_type not in response
+            mime_guess::from_path(&filename)
+                .first_raw()
+                .unwrap_or("application/octet-stream")
+        })
         .to_string();
 
     // Download the file
@@ -1138,31 +1154,49 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                 format!("Email sent.\n{}", text)
             }
         }
-        "get_emails" => {
-            if let Ok(emails) = serde_json::from_str::<Vec<Value>>(text) {
-                if emails.is_empty() {
-                    return "No emails found.".to_string();
-                }
-                let mut lines = Vec::new();
-                for email in &emails {
-                    let from = email["from"]
-                        .as_str()
-                        .or_else(|| email["sender"].as_str())
-                        .unwrap_or("unknown");
-                    let subject = email["subject"].as_str().unwrap_or("(no subject)");
-                    let date = email["date"]
-                        .as_str()
-                        .or_else(|| email["received_at"].as_str())
-                        .unwrap_or("");
-                    lines.push(format!(
-                        "  From: {}  Subject: {}  Date: {}",
-                        from, subject, date
-                    ));
-                }
-                format!("{} email(s):\n{}", emails.len(), lines.join("\n"))
+        "get_emails" | "search_emails" => {
+            // Server may return {"emails": [...]} or a bare array
+            let emails: Vec<Value> = if let Ok(arr) = serde_json::from_str::<Vec<Value>>(text) {
+                arr
+            } else if let Ok(obj) = serde_json::from_str::<Value>(text) {
+                obj.get("emails")
+                    .or_else(|| obj.get("results"))
+                    .and_then(|e| e.as_array())
+                    .cloned()
+                    .unwrap_or_default()
             } else {
-                text.to_string()
+                return text.to_string();
+            };
+
+            if emails.is_empty() {
+                return if tool_name == "search_emails" {
+                    "No results found.".to_string()
+                } else {
+                    "No emails found.".to_string()
+                };
             }
+            let mut lines = Vec::new();
+            for email in &emails {
+                let from = email["from"]
+                    .as_str()
+                    .or_else(|| email["sender"].as_str())
+                    .unwrap_or("unknown");
+                let subject = email["subject"].as_str().unwrap_or("(no subject)");
+                let date = email["date"]
+                    .as_str()
+                    .or_else(|| email["received_at"].as_str())
+                    .unwrap_or("");
+                lines.push(format!(
+                    "  From: {}  Subject: {}  Date: {}",
+                    from, subject, date
+                ));
+            }
+            let label = if tool_name == "search_emails" {
+                "result"
+            } else {
+                "email"
+            };
+            format!("{} {}(s):\n{}", emails.len(), label, lines.join("\n"))
         }
         "get_email" => {
             if let Ok(email) = serde_json::from_str::<Value>(text) {
@@ -1184,25 +1218,6 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                     "From: {}\nTo: {}\nDate: {}\nSubject: {}\n\n{}",
                     from, to, date, subject, body
                 )
-            } else {
-                text.to_string()
-            }
-        }
-        "search_emails" => {
-            if let Ok(results) = serde_json::from_str::<Vec<Value>>(text) {
-                if results.is_empty() {
-                    return "No results found.".to_string();
-                }
-                let mut lines = Vec::new();
-                for email in &results {
-                    let from = email["from"]
-                        .as_str()
-                        .or_else(|| email["sender"].as_str())
-                        .unwrap_or("unknown");
-                    let subject = email["subject"].as_str().unwrap_or("(no subject)");
-                    lines.push(format!("  From: {}  Subject: {}", from, subject));
-                }
-                format!("{} result(s):\n{}", results.len(), lines.join("\n"))
             } else {
                 text.to_string()
             }
@@ -1268,7 +1283,7 @@ Examples:
   inboxapi send-email --to user@example.com --subject \"Fwd\" --body \"See attached\" --attachment-ref 9f0206bb-...
   inboxapi get-emails --limit 5
   inboxapi get-emails --limit 5 --human
-  inboxapi search-emails --query \"invoice\"
+  inboxapi search-emails --subject \"invoice\"
   inboxapi get-attachment abc123 --output ./file.pdf
   inboxapi send-reply --message-id \"<msg-id>\" --body \"Thanks!\"
   inboxapi forward-email --message-id \"<msg-id>\" --to recipient@example.com
@@ -1371,10 +1386,33 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             let text = extract_tool_result_text(&response)?;
             print_result("get_email", &text, cli.human);
         }
-        Some(Commands::SearchEmails { ref query, limit }) => {
-            let mut args = json!({"query": query});
+        Some(Commands::SearchEmails {
+            ref sender,
+            ref subject,
+            ref since,
+            ref until,
+            limit,
+        }) => {
+            let mut args = json!({});
+            if let Some(sender) = sender {
+                args["sender"] = json!(sender);
+            }
+            if let Some(subject) = subject {
+                args["subject"] = json!(subject);
+            }
+            if let Some(since) = since {
+                args["since"] = json!(since);
+            }
+            if let Some(until) = until {
+                args["until"] = json!(until);
+            }
             if let Some(limit) = limit {
                 args["limit"] = json!(limit);
+            }
+            if args.as_object().is_none_or(|o| o.is_empty()) {
+                return Err(anyhow!(
+                    "At least one search filter required (--sender, --subject, --since, or --until)"
+                ));
             }
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "search_emails", args).await?;
@@ -1394,8 +1432,9 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 // Download the file and save it
                 let data: Value = serde_json::from_str(&text)
                     .context("Failed to parse get_attachment response")?;
-                let url = data["url"]
+                let url = data["download_url"]
                     .as_str()
+                    .or_else(|| data["url"].as_str())
                     .ok_or_else(|| anyhow!("No URL in get_attachment response"))?;
                 let file_resp = http_client
                     .get(url)
@@ -5140,9 +5179,34 @@ mod tests {
     }
 
     #[test]
+    fn test_human_output_get_emails_wrapped_object() {
+        let text = r#"{"emails":[{"from": "alice@test.com", "subject": "Hello", "date": "2024-01-01"}], "returned": 1, "offset": 0, "limit": 5}"#;
+        let output = format_human_output("get_emails", text);
+        assert!(output.contains("1 email(s)"));
+        assert!(output.contains("alice@test.com"));
+        assert!(output.contains("Hello"));
+    }
+
+    #[test]
     fn test_human_output_get_emails_empty() {
         let output = format_human_output("get_emails", "[]");
         assert_eq!(output, "No emails found.");
+    }
+
+    #[test]
+    fn test_human_output_get_emails_empty_wrapped() {
+        let text = r#"{"emails":[], "returned": 0}"#;
+        let output = format_human_output("get_emails", text);
+        assert_eq!(output, "No emails found.");
+    }
+
+    #[test]
+    fn test_human_output_search_emails_wrapped() {
+        let text =
+            r#"{"emails":[{"from": "bob@test.com", "subject": "Invoice", "date": "2024-01-02"}]}"#;
+        let output = format_human_output("search_emails", text);
+        assert!(output.contains("1 result(s)"));
+        assert!(output.contains("bob@test.com"));
     }
 
     #[test]

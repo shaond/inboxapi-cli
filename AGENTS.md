@@ -22,7 +22,7 @@ cargo run -- send-email --to user@example.com --subject "Fwd" --body "See attach
 cargo run -- get-emails --limit 5
 cargo run -- get-emails --limit 5 --human
 cargo run -- get-email "<message-id>"
-cargo run -- search-emails --query "invoice"
+cargo run -- search-emails --subject "invoice"
 cargo run -- get-attachment abc123 --output ./file.pdf
 cargo run -- send-reply --message-id "<id>" --body "Thanks!"
 cargo run -- forward-email --message-id "<id>" --to recipient@example.com
@@ -76,9 +76,10 @@ Before declaring work done, run these in order:
 2. `cargo clippy -- -D warnings` — lint with zero warnings
 3. `cargo test` — all unit tests pass
 4. `cargo build` — clean compilation
+5. **Test each new CLI subcommand** — after building, run each new or modified subcommand against the live API to verify it works end-to-end (e.g. `cargo run -- get-emails --limit 3 --human`)
 
 ## Contribution Workflow
 1. Create a feature branch from `main`
 2. Implement changes with focused commits
-3. Run the pre-completion checklist above
+3. Run the pre-completion checklist above (including live testing of CLI subcommands)
 4. Open a PR against `main`
