@@ -13,8 +13,8 @@ Help the user forward an email to another recipient.
 ## Steps
 
 1. **Find the email to forward**:
-   - If `$ARGUMENTS` looks like an email ID, call `mcp__inboxapi__get_email` directly
-   - Otherwise, call `mcp__inboxapi__search_emails` with the argument
+   - If `$ARGUMENTS` looks like an email ID, run `npx -y @inboxapi/cli get-email "<message-id>"` directly
+   - Otherwise, run `npx -y @inboxapi/cli search-emails --subject "<query>"` with the argument
    - If multiple results, show them and ask the user to pick one
 
 2. **Show email content**: Display the email being forwarded:
@@ -29,7 +29,7 @@ Help the user forward an email to another recipient.
 
 3. **Resolve recipient**:
    - Ask "Who do you want to forward this to?"
-   - Call `mcp__inboxapi__get_addressbook` to check for matching contacts
+   - Run: `npx -y @inboxapi/cli get-addressbook` to check for matching contacts
    - Confirm the recipient email address
 
 4. **Optional message**: Ask "Add a message? (or press enter to skip)"
@@ -44,7 +44,11 @@ Help the user forward an email to another recipient.
 
 6. **Confirm**: Ask "Forward this email? (yes/no)"
 
-7. **Send**: Call `mcp__inboxapi__forward_email` with the email ID, recipient, and optional message
+7. **Send**: Run: `npx -y @inboxapi/cli forward-email --message-id "<id>" --to "<recipient>"` (add `--note "<message>"` if provided)
+
+## Notes
+
+- All CLI commands output JSON by default — parse the JSON response to extract the relevant fields
 
 ## Rules
 

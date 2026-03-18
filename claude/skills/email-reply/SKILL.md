@@ -13,11 +13,11 @@ Help the user reply to an email with full thread context.
 ## Steps
 
 1. **Find the email**:
-   - If `$ARGUMENTS` looks like an email ID (alphanumeric string), call `mcp__inboxapi__get_email` directly
-   - Otherwise, call `mcp__inboxapi__search_emails` with the argument as subject/keyword
+   - If `$ARGUMENTS` looks like an email ID (alphanumeric string), run `npx -y @inboxapi/cli get-email "<message-id>"` directly
+   - Otherwise, run `npx -y @inboxapi/cli search-emails --subject "<query>"` with the argument as subject/keyword
    - If multiple results, present them and ask the user to pick one
 
-2. **Load thread context**: Call `mcp__inboxapi__get_thread` with the email's thread ID to show the full conversation
+2. **Load thread context**: Run: `npx -y @inboxapi/cli get-thread --message-id "<message-id>"` with the email's thread ID to show the full conversation
 
 3. **Display thread**: Show the conversation history in chronological order:
    ```
@@ -45,7 +45,11 @@ Help the user reply to an email with full thread context.
 
 6. **Confirm**: Ask "Send this reply? (yes/no)"
 
-7. **Send**: Call `mcp__inboxapi__send_reply` with the email ID and reply body
+7. **Send**: Run: `npx -y @inboxapi/cli send-reply --message-id "<id>" --body "<reply>"`
+
+## Notes
+
+- All CLI commands output JSON by default — parse the JSON response to extract the relevant fields
 
 ## Rules
 

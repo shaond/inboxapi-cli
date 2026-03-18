@@ -156,6 +156,80 @@ enum Commands {
         #[arg(long)]
         note: Option<String>,
     },
+    /// Get the most recent email
+    GetLastEmail,
+    /// Get inbox email count
+    GetEmailCount {
+        /// Only count emails since this ISO 8601 datetime
+        #[arg(long)]
+        since: Option<String>,
+    },
+    /// List sent emails
+    GetSentEmails {
+        /// Filter by status
+        #[arg(long)]
+        status: Option<String>,
+        /// Maximum number of results
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Offset for pagination
+        #[arg(long)]
+        offset: Option<u32>,
+    },
+    /// Get an email thread by message ID
+    GetThread {
+        /// The message ID to get the thread for
+        #[arg(long)]
+        message_id: String,
+    },
+    /// Get your address book contacts
+    GetAddressbook,
+    /// Get InboxAPI announcements
+    GetAnnouncements,
+    /// Introspect the current access token
+    AuthIntrospect,
+    /// Revoke a specific token
+    AuthRevoke {
+        /// The token to revoke
+        #[arg(long)]
+        token: String,
+    },
+    /// Revoke all tokens for the current account
+    AuthRevokeAll,
+    /// Recover a lost account
+    AccountRecover {
+        /// Account name
+        #[arg(long)]
+        name: String,
+        /// Recovery email address
+        #[arg(long)]
+        email: String,
+        /// Recovery code (if already received)
+        #[arg(long)]
+        code: Option<String>,
+    },
+    /// Verify email ownership
+    VerifyOwner {
+        /// Email address to verify
+        #[arg(long)]
+        email: String,
+        /// Verification code (if already received)
+        #[arg(long)]
+        code: Option<String>,
+    },
+    /// Enable email encryption
+    EnableEncryption,
+    /// Reset email encryption
+    ResetEncryption,
+    /// Rotate encryption secret
+    RotateEncryption {
+        /// Current encryption secret
+        #[arg(long)]
+        old_secret: String,
+        /// New encryption secret
+        #[arg(long)]
+        new_secret: String,
+    },
     /// Show CLI help with examples
     Help,
 }
@@ -554,7 +628,7 @@ static HOOKS_SETTINGS: &str = r#"{
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__inboxapi__send_email|mcp__inboxapi__send_reply|mcp__inboxapi__forward_email",
+        "matcher": "mcp__inboxapi__send_email|mcp__inboxapi__send_reply|mcp__inboxapi__forward_email|Bash",
         "hooks": [
           {
             "type": "command",
@@ -566,7 +640,7 @@ static HOOKS_SETTINGS: &str = r#"{
     ],
     "PostToolUse": [
       {
-        "matcher": "mcp__inboxapi__.*",
+        "matcher": "mcp__inboxapi__.*|Bash",
         "hooks": [
           {
             "type": "command",
@@ -795,6 +869,20 @@ async fn main() -> Result<()> {
         | Some(Commands::GetAttachment { .. })
         | Some(Commands::SendReply { .. })
         | Some(Commands::ForwardEmail { .. })
+        | Some(Commands::GetLastEmail)
+        | Some(Commands::GetEmailCount { .. })
+        | Some(Commands::GetSentEmails { .. })
+        | Some(Commands::GetThread { .. })
+        | Some(Commands::GetAddressbook)
+        | Some(Commands::GetAnnouncements)
+        | Some(Commands::AuthIntrospect)
+        | Some(Commands::AuthRevoke { .. })
+        | Some(Commands::AuthRevokeAll)
+        | Some(Commands::AccountRecover { .. })
+        | Some(Commands::VerifyOwner { .. })
+        | Some(Commands::EnableEncryption)
+        | Some(Commands::ResetEncryption)
+        | Some(Commands::RotateEncryption { .. })
         | Some(Commands::Help) => run_cli_command(&cli).await,
         None => {
             // Prefer the endpoint stored in credentials, if available; fall back to CLI default.
@@ -1244,6 +1332,97 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                 format!("Email forwarded.\n{}", text)
             }
         }
+        "get_last_email" => {
+            // Reuse the get_email formatter
+            format_human_output("get_email", text)
+        }
+        "get_email_count" => {
+            if let Ok(data) = serde_json::from_str::<Value>(text) {
+                let count = data["count"]
+                    .as_u64()
+                    .or_else(|| data["total"].as_u64())
+                    .unwrap_or(0);
+                format!("Email count: {}", count)
+            } else {
+                text.to_string()
+            }
+        }
+        "get_sent_emails" => {
+            // Reuse the get_emails formatter
+            format_human_output("get_emails", text)
+        }
+        "get_thread" => {
+            if let Ok(data) = serde_json::from_str::<Value>(text) {
+                let messages = data["messages"]
+                    .as_array()
+                    .or_else(|| data["emails"].as_array())
+                    .or_else(|| data.as_array());
+                if let Some(msgs) = messages {
+                    let mut lines = Vec::new();
+                    for (i, msg) in msgs.iter().enumerate() {
+                        let from = msg["from"]
+                            .as_str()
+                            .or_else(|| msg["sender"].as_str())
+                            .unwrap_or("unknown");
+                        let date = msg["date"]
+                            .as_str()
+                            .or_else(|| msg["received_at"].as_str())
+                            .unwrap_or("");
+                        let body = msg["body"]
+                            .as_str()
+                            .or_else(|| msg["text_body"].as_str())
+                            .unwrap_or("");
+                        let preview = if body.chars().count() > 100 {
+                            let truncated: String = body.chars().take(100).collect();
+                            format!("{}...", truncated)
+                        } else {
+                            body.to_string()
+                        };
+                        lines.push(format!(
+                            "[{}] From: {} ({})\n  {}",
+                            i + 1,
+                            from,
+                            date,
+                            preview
+                        ));
+                    }
+                    let subject = data["subject"].as_str().unwrap_or("(thread)");
+                    format!("Thread: {}\n{}", subject, lines.join("\n\n"))
+                } else {
+                    text.to_string()
+                }
+            } else {
+                text.to_string()
+            }
+        }
+        "get_addressbook" => {
+            if let Ok(data) = serde_json::from_str::<Value>(text) {
+                let contacts = data["contacts"].as_array().or_else(|| data.as_array());
+                if let Some(contacts) = contacts {
+                    if contacts.is_empty() {
+                        return "Address book is empty.".to_string();
+                    }
+                    let mut lines = Vec::new();
+                    for contact in contacts {
+                        let name = contact["name"].as_str().unwrap_or("");
+                        let email = contact["email"]
+                            .as_str()
+                            .or_else(|| contact["address"].as_str())
+                            .unwrap_or("unknown");
+                        if name.is_empty() {
+                            lines.push(format!("  {}", email));
+                        } else {
+                            lines.push(format!("  {} <{}>", name, email));
+                        }
+                    }
+                    format!("{} contact(s):\n{}", contacts.len(), lines.join("\n"))
+                } else {
+                    text.to_string()
+                }
+            } else {
+                text.to_string()
+            }
+        }
         _ => text.to_string(),
     }
 }
@@ -1264,10 +1443,24 @@ Commands:
   send-email     Send an email (supports --attachment and --attachment-ref)
   get-emails     List inbox emails
   get-email      Get a single email by message ID
+  get-last-email  Get the most recent email
+  get-email-count  Get inbox email count
+  get-sent-emails  List sent emails
+  get-thread     Get an email thread
   search-emails  Search your inbox
   get-attachment  Get or download an attachment
   send-reply     Reply to an email
   forward-email  Forward an email
+  get-addressbook  Get your address book contacts
+  get-announcements  Get InboxAPI announcements
+  auth-introspect  Introspect the current access token
+  auth-revoke    Revoke a specific token
+  auth-revoke-all  Revoke all tokens
+  account-recover  Recover a lost account
+  verify-owner   Verify email ownership
+  enable-encryption  Enable email encryption
+  reset-encryption  Reset email encryption
+  rotate-encryption  Rotate encryption secret
   whoami         Show current account info
   proxy          Start MCP STDIO proxy (default)
   login          Create account and store credentials
@@ -1283,6 +1476,11 @@ Examples:
   inboxapi send-email --to user@example.com --subject \"Fwd\" --body \"See attached\" --attachment-ref 9f0206bb-...
   inboxapi get-emails --limit 5
   inboxapi get-emails --limit 5 --human
+  inboxapi get-last-email
+  inboxapi get-email-count
+  inboxapi get-sent-emails --limit 10
+  inboxapi get-thread --message-id \"<msg-id>\"
+  inboxapi get-addressbook
   inboxapi search-emails --subject \"invoice\"
   inboxapi get-attachment abc123 --output ./file.pdf
   inboxapi send-reply --message-id \"<msg-id>\" --body \"Thanks!\"
@@ -1491,6 +1689,177 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "forward_email", args).await?;
             let text = extract_tool_result_text(&response)?;
             print_result("forward_email", &text, cli.human);
+        }
+        Some(Commands::GetLastEmail) => {
+            let response = call_mcp_tool(
+                &endpoint,
+                &mut creds,
+                &http_client,
+                "get_last_email",
+                json!({}),
+            )
+            .await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("get_last_email", &text, cli.human);
+        }
+        Some(Commands::GetEmailCount { ref since }) => {
+            let mut args = json!({});
+            if let Some(since) = since {
+                args["since"] = json!(since);
+            }
+            let response =
+                call_mcp_tool(&endpoint, &mut creds, &http_client, "get_email_count", args).await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("get_email_count", &text, cli.human);
+        }
+        Some(Commands::GetSentEmails {
+            ref status,
+            limit,
+            offset,
+        }) => {
+            let mut args = json!({});
+            if let Some(status) = status {
+                args["status"] = json!(status);
+            }
+            if let Some(limit) = limit {
+                args["limit"] = json!(limit);
+            }
+            if let Some(offset) = offset {
+                args["offset"] = json!(offset);
+            }
+            let response =
+                call_mcp_tool(&endpoint, &mut creds, &http_client, "get_sent_emails", args).await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("get_sent_emails", &text, cli.human);
+        }
+        Some(Commands::GetThread { ref message_id }) => {
+            let args = json!({"message_id": message_id});
+            let response =
+                call_mcp_tool(&endpoint, &mut creds, &http_client, "get_thread", args).await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("get_thread", &text, cli.human);
+        }
+        Some(Commands::GetAddressbook) => {
+            let response = call_mcp_tool(
+                &endpoint,
+                &mut creds,
+                &http_client,
+                "get_addressbook",
+                json!({}),
+            )
+            .await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("get_addressbook", &text, cli.human);
+        }
+        Some(Commands::GetAnnouncements) => {
+            let response = call_mcp_tool(
+                &endpoint,
+                &mut creds,
+                &http_client,
+                "get_announcements",
+                json!({}),
+            )
+            .await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("get_announcements", &text, cli.human);
+        }
+        Some(Commands::AuthIntrospect) => {
+            let response = call_mcp_tool(
+                &endpoint,
+                &mut creds,
+                &http_client,
+                "auth_introspect",
+                json!({}),
+            )
+            .await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("auth_introspect", &text, cli.human);
+        }
+        Some(Commands::AuthRevoke { ref token }) => {
+            let args = json!({"token": token});
+            let response =
+                call_mcp_tool(&endpoint, &mut creds, &http_client, "auth_revoke", args).await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("auth_revoke", &text, cli.human);
+        }
+        Some(Commands::AuthRevokeAll) => {
+            let response = call_mcp_tool(
+                &endpoint,
+                &mut creds,
+                &http_client,
+                "auth_revoke_all",
+                json!({}),
+            )
+            .await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("auth_revoke_all", &text, cli.human);
+        }
+        Some(Commands::AccountRecover {
+            ref name,
+            ref email,
+            ref code,
+        }) => {
+            let mut args = json!({"name": name, "email": email});
+            if let Some(code) = code {
+                args["code"] = json!(code);
+            }
+            let response =
+                call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("account_recover", &text, cli.human);
+        }
+        Some(Commands::VerifyOwner {
+            ref email,
+            ref code,
+        }) => {
+            let mut args = json!({"email": email});
+            if let Some(code) = code {
+                args["code"] = json!(code);
+            }
+            let response =
+                call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("verify_owner", &text, cli.human);
+        }
+        Some(Commands::EnableEncryption) => {
+            let response = call_mcp_tool(
+                &endpoint,
+                &mut creds,
+                &http_client,
+                "enable_encryption",
+                json!({}),
+            )
+            .await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("enable_encryption", &text, cli.human);
+        }
+        Some(Commands::ResetEncryption) => {
+            let response = call_mcp_tool(
+                &endpoint,
+                &mut creds,
+                &http_client,
+                "reset_encryption",
+                json!({}),
+            )
+            .await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("reset_encryption", &text, cli.human);
+        }
+        Some(Commands::RotateEncryption {
+            ref old_secret,
+            ref new_secret,
+        }) => {
+            let args = json!({"old_secret": old_secret, "new_secret": new_secret});
+            let response = call_mcp_tool(
+                &endpoint,
+                &mut creds,
+                &http_client,
+                "rotate_encryption_secret",
+                args,
+            )
+            .await?;
+            let text = extract_tool_result_text(&response)?;
+            print_result("rotate_encryption_secret", &text, cli.human);
         }
         Some(Commands::Help) => {
             print!("{}", CLI_HELP_TEXT);
