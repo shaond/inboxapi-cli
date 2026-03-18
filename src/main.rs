@@ -1028,6 +1028,9 @@ fn build_attachment_from_file(path: &str) -> Result<Value> {
     }))
 }
 
+/// Timeout for downloading attachments (used in both resolve_attachment_ref and get-attachment).
+const ATTACHMENT_DOWNLOAD_TIMEOUT_SECS: u64 = 120;
+
 /// Resolve a server-side attachment ref to an attachment entry.
 async fn resolve_attachment_ref(
     attachment_id: &str,
@@ -1063,7 +1066,9 @@ async fn resolve_attachment_ref(
     // Download the file
     let file_resp = http_client
         .get(url)
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(
+            ATTACHMENT_DOWNLOAD_TIMEOUT_SECS,
+        ))
         .send()
         .await
         .context("Failed to download attachment")?;
@@ -1394,7 +1399,9 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                     .ok_or_else(|| anyhow!("No URL in get_attachment response"))?;
                 let file_resp = http_client
                     .get(url)
-                    .timeout(std::time::Duration::from_secs(30))
+                    .timeout(std::time::Duration::from_secs(
+                        ATTACHMENT_DOWNLOAD_TIMEOUT_SECS,
+                    ))
                     .send()
                     .await
                     .context("Failed to download attachment")?;
@@ -1436,7 +1443,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         }) => {
             let mut args = json!({
                 "message_id": message_id,
-                "to": [to],
+                "to": split_csv(to),
             });
             if let Some(note) = note {
                 args["note"] = json!(note);
