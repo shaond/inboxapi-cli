@@ -222,7 +222,8 @@ enum Commands {
     /// Reset email encryption
     ResetEncryption,
     /// Rotate encryption secret
-    RotateEncryption {
+    #[command(name = "rotate-encryption")]
+    RotateEncryptionSecret {
         /// Current encryption secret
         #[arg(long)]
         old_secret: String,
@@ -882,7 +883,7 @@ async fn main() -> Result<()> {
         | Some(Commands::VerifyOwner { .. })
         | Some(Commands::EnableEncryption)
         | Some(Commands::ResetEncryption)
-        | Some(Commands::RotateEncryption { .. })
+        | Some(Commands::RotateEncryptionSecret { .. })
         | Some(Commands::Help) => run_cli_command(&cli).await,
         None => {
             // Prefer the endpoint stored in credentials, if available; fall back to CLI default.
@@ -1423,6 +1424,60 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                 text.to_string()
             }
         }
+        "get_announcements" => {
+            if let Ok(data) = serde_json::from_str::<Value>(text) {
+                let announcements = data["announcements"].as_array().or_else(|| data.as_array());
+                if let Some(items) = announcements {
+                    if items.is_empty() {
+                        return "No announcements.".to_string();
+                    }
+                    let mut lines = Vec::new();
+                    for item in items {
+                        let title = item["title"].as_str().unwrap_or("(untitled)");
+                        let date = item["date"]
+                            .as_str()
+                            .or_else(|| item["created_at"].as_str())
+                            .unwrap_or("");
+                        let body = item["body"]
+                            .as_str()
+                            .or_else(|| item["message"].as_str())
+                            .unwrap_or("");
+                        let preview = if body.chars().count() > 120 {
+                            let truncated: String = body.chars().take(120).collect();
+                            format!("{}...", truncated)
+                        } else {
+                            body.to_string()
+                        };
+                        lines.push(format!("  [{}] {}\n    {}", date, title, preview));
+                    }
+                    format!("{} announcement(s):\n{}", items.len(), lines.join("\n"))
+                } else {
+                    text.to_string()
+                }
+            } else {
+                text.to_string()
+            }
+        }
+        "auth_introspect" => {
+            if let Ok(data) = serde_json::from_str::<Value>(text) {
+                if let Some(obj) = data.as_object() {
+                    let mut lines = Vec::new();
+                    for (key, val) in obj {
+                        let display = match val {
+                            Value::String(s) => s.clone(),
+                            Value::Null => "(null)".to_string(),
+                            other => other.to_string(),
+                        };
+                        lines.push(format!("  {}: {}", key, display));
+                    }
+                    format!("Token info:\n{}", lines.join("\n"))
+                } else {
+                    text.to_string()
+                }
+            } else {
+                text.to_string()
+            }
+        }
         _ => text.to_string(),
     }
 }
@@ -1845,7 +1900,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             let text = extract_tool_result_text(&response)?;
             print_result("reset_encryption", &text, cli.human);
         }
-        Some(Commands::RotateEncryption {
+        Some(Commands::RotateEncryptionSecret {
             ref old_secret,
             ref new_secret,
         }) => {

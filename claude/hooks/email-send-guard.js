@@ -33,11 +33,11 @@ function main() {
     }
 
     // Best-effort extraction from CLI flags
-    const toMatch = cmd.match(/--to\s+(?:"([^"]+)"|'([^']+)'|(\S+))/);
+    const toMatch = cmd.match(/--to(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/);
     toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3])) || "(unknown)";
-    const subjectMatch = cmd.match(/--subject\s+(?:"([^"]+)"|'([^']+)'|(\S+))/);
+    const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/);
     subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3])) || "(no subject)";
-    const bodyMatch = cmd.match(/--body\s+(?:"([^"]+)"|'([^']+)'|(\S+))/);
+    const bodyMatch = cmd.match(/--body(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/);
     body = (bodyMatch && (bodyMatch[1] || bodyMatch[2] || bodyMatch[3])) || "";
     action = isForward ? "FORWARD" : isReply ? "REPLY" : "SEND";
   } else {
