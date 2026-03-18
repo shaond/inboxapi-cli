@@ -13,11 +13,11 @@ Help the user reply to an email with full thread context.
 ## Steps
 
 1. **Find the email**:
-   - If `$ARGUMENTS` looks like an email ID (alphanumeric string), run `npx -y @inboxapi/cli get-email "<message-id>"` directly
-   - Otherwise, run `npx -y @inboxapi/cli search-emails --subject "<query>"` with the argument as subject/keyword
+   - Try `npx -y @inboxapi/cli get-email "$ARGUMENTS"` first — if it succeeds, use that email
+   - If it fails (e.g., not a valid message ID), fall back to `npx -y @inboxapi/cli search-emails --subject "<query>"` with the argument as subject/keyword
    - If multiple results, present them and ask the user to pick one
 
-2. **Load thread context**: Run: `npx -y @inboxapi/cli get-thread --message-id "<message-id>"` with the email's thread ID to show the full conversation
+2. **Load thread context**: Run: `npx -y @inboxapi/cli get-thread --message-id "<message-id>"` with the email's message ID to show the full conversation
 
 3. **Display thread**: Show the conversation history in chronological order:
    ```

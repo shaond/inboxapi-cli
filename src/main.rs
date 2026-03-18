@@ -625,6 +625,9 @@ static HOOKS: &[(&str, &str)] = &[
     ),
 ];
 
+// NOTE: The matchers below include `|Bash` so hooks fire for CLI invocations
+// (e.g. `npx -y @inboxapi/cli send-email ...`). The Node hook scripts exit in
+// <1ms for non-inboxapi Bash commands, so the overhead is negligible.
 static HOOKS_SETTINGS: &str = r#"{
   "hooks": {
     "PreToolUse": [
@@ -1373,11 +1376,14 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                             .as_str()
                             .or_else(|| msg["text_body"].as_str())
                             .unwrap_or("");
-                        let preview = if body.chars().count() > 100 {
-                            let truncated: String = body.chars().take(100).collect();
-                            format!("{}...", truncated)
-                        } else {
-                            body.to_string()
+                        let preview = {
+                            let mut chars = body.chars().take(101);
+                            let truncated: String = (&mut chars).take(100).collect();
+                            if chars.next().is_some() {
+                                format!("{}...", truncated)
+                            } else {
+                                truncated
+                            }
                         };
                         lines.push(format!(
                             "[{}] From: {} ({})\n  {}",
@@ -1442,11 +1448,14 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                             .as_str()
                             .or_else(|| item["message"].as_str())
                             .unwrap_or("");
-                        let preview = if body.chars().count() > 120 {
-                            let truncated: String = body.chars().take(120).collect();
-                            format!("{}...", truncated)
-                        } else {
-                            body.to_string()
+                        let preview = {
+                            let mut chars = body.chars().take(121);
+                            let truncated: String = (&mut chars).take(120).collect();
+                            if chars.next().is_some() {
+                                format!("{}...", truncated)
+                            } else {
+                                truncated
+                            }
                         };
                         lines.push(format!("  [{}] {}\n    {}", date, title, preview));
                     }
@@ -5663,6 +5672,144 @@ mod tests {
         let output = format_human_output("forward_email", text);
         assert!(output.contains("Email forwarded"));
         assert!(output.contains("<fwd@test>"));
+    }
+
+    #[test]
+    fn test_human_output_get_last_email() {
+        let text = r#"{"from": "alice@test.com", "to": "bob@test.com", "subject": "Latest", "date": "2024-01-15", "body": "Latest message"}"#;
+        let output = format_human_output("get_last_email", text);
+        assert!(output.contains("From: alice@test.com"));
+        assert!(output.contains("Subject: Latest"));
+        assert!(output.contains("Latest message"));
+    }
+
+    #[test]
+    fn test_human_output_get_last_email_invalid_json() {
+        let output = format_human_output("get_last_email", "not json");
+        assert_eq!(output, "not json");
+    }
+
+    #[test]
+    fn test_human_output_get_email_count() {
+        let text = r#"{"count": 42}"#;
+        let output = format_human_output("get_email_count", text);
+        assert_eq!(output, "Email count: 42");
+    }
+
+    #[test]
+    fn test_human_output_get_email_count_total_field() {
+        let text = r#"{"total": 7}"#;
+        let output = format_human_output("get_email_count", text);
+        assert_eq!(output, "Email count: 7");
+    }
+
+    #[test]
+    fn test_human_output_get_email_count_invalid_json() {
+        let output = format_human_output("get_email_count", "bad");
+        assert_eq!(output, "bad");
+    }
+
+    #[test]
+    fn test_human_output_get_sent_emails() {
+        let text = r#"[{"from": "me@test.com", "subject": "Sent item", "date": "2024-02-01"}]"#;
+        let output = format_human_output("get_sent_emails", text);
+        assert!(output.contains("1 email(s)"));
+        assert!(output.contains("me@test.com"));
+        assert!(output.contains("Sent item"));
+    }
+
+    #[test]
+    fn test_human_output_get_sent_emails_empty() {
+        let output = format_human_output("get_sent_emails", "[]");
+        assert_eq!(output, "No emails found.");
+    }
+
+    #[test]
+    fn test_human_output_get_thread() {
+        let text = r#"{"subject": "Discussion", "messages": [{"from": "alice@test.com", "date": "2024-01-01", "body": "Hello"}, {"from": "bob@test.com", "date": "2024-01-02", "body": "Hi back"}]}"#;
+        let output = format_human_output("get_thread", text);
+        assert!(output.contains("Thread: Discussion"));
+        assert!(output.contains("[1] From: alice@test.com"));
+        assert!(output.contains("[2] From: bob@test.com"));
+        assert!(output.contains("Hello"));
+        assert!(output.contains("Hi back"));
+    }
+
+    #[test]
+    fn test_human_output_get_thread_truncates_long_body() {
+        let long_body = "x".repeat(150);
+        let text = format!(
+            r#"{{"messages": [{{"from": "a@b.com", "date": "2024-01-01", "body": "{}"}}]}}"#,
+            long_body
+        );
+        let output = format_human_output("get_thread", &text);
+        assert!(output.contains("..."));
+        assert!(output.contains(&"x".repeat(100)));
+    }
+
+    #[test]
+    fn test_human_output_get_thread_invalid_json() {
+        let output = format_human_output("get_thread", "not json");
+        assert_eq!(output, "not json");
+    }
+
+    #[test]
+    fn test_human_output_get_addressbook() {
+        let text = r#"{"contacts": [{"name": "Alice", "email": "alice@test.com"}, {"email": "bob@test.com"}]}"#;
+        let output = format_human_output("get_addressbook", text);
+        assert!(output.contains("2 contact(s)"));
+        assert!(output.contains("Alice <alice@test.com>"));
+        assert!(output.contains("  bob@test.com"));
+    }
+
+    #[test]
+    fn test_human_output_get_addressbook_empty() {
+        let text = r#"{"contacts": []}"#;
+        let output = format_human_output("get_addressbook", text);
+        assert_eq!(output, "Address book is empty.");
+    }
+
+    #[test]
+    fn test_human_output_get_addressbook_invalid_json() {
+        let output = format_human_output("get_addressbook", "bad");
+        assert_eq!(output, "bad");
+    }
+
+    #[test]
+    fn test_human_output_get_announcements() {
+        let text = r#"{"announcements": [{"title": "New Feature", "date": "2024-03-01", "body": "We added X"}]}"#;
+        let output = format_human_output("get_announcements", text);
+        assert!(output.contains("1 announcement(s)"));
+        assert!(output.contains("New Feature"));
+        assert!(output.contains("We added X"));
+    }
+
+    #[test]
+    fn test_human_output_get_announcements_empty() {
+        let text = r#"{"announcements": []}"#;
+        let output = format_human_output("get_announcements", text);
+        assert_eq!(output, "No announcements.");
+    }
+
+    #[test]
+    fn test_human_output_get_announcements_invalid_json() {
+        let output = format_human_output("get_announcements", "bad");
+        assert_eq!(output, "bad");
+    }
+
+    #[test]
+    fn test_human_output_auth_introspect() {
+        let text = r#"{"active": true, "scope": "read write", "email": "user@test.com"}"#;
+        let output = format_human_output("auth_introspect", text);
+        assert!(output.contains("Token info:"));
+        assert!(output.contains("active:"));
+        assert!(output.contains("email: user@test.com"));
+    }
+
+    #[test]
+    fn test_human_output_auth_introspect_invalid_json() {
+        let output = format_human_output("auth_introspect", "not json");
+        assert_eq!(output, "not json");
     }
 
     #[test]

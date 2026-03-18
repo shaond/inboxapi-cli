@@ -13,8 +13,8 @@ Help the user forward an email to another recipient.
 ## Steps
 
 1. **Find the email to forward**:
-   - If `$ARGUMENTS` looks like an email ID, run `npx -y @inboxapi/cli get-email "<message-id>"` directly
-   - Otherwise, run `npx -y @inboxapi/cli search-emails --subject "<query>"` with the argument
+   - Try `npx -y @inboxapi/cli get-email "$ARGUMENTS"` first — if it succeeds, use that email
+   - If it fails (e.g., not a valid message ID), fall back to `npx -y @inboxapi/cli search-emails --subject "<query>"` with the argument
    - If multiple results, show them and ask the user to pick one
 
 2. **Show email content**: Display the email being forwarded:

@@ -26,9 +26,9 @@ function main() {
     if (!cmd.includes("inboxapi")) {
       process.exit(0);
     }
-    // Extract subcommand: first arg after "inboxapi" that doesn't start with --
+    // Extract subcommand: first arg after "inboxapi" (or "@inboxapi/cli") that doesn't start with --
     const parts = cmd.split(/\s+/);
-    const idx = parts.findIndex(p => p === "inboxapi" || p.endsWith("/inboxapi"));
+    const idx = parts.findIndex(p => p === "inboxapi" || p.endsWith("/inboxapi") || p === "@inboxapi/cli");
     shortName = (idx >= 0 && parts[idx + 1] && !parts[idx + 1].startsWith("-"))
       ? parts[idx + 1]
       : "unknown-cli-cmd";
