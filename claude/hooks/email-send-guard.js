@@ -17,25 +17,51 @@ function main() {
   const toolName = data.tool_name || "";
   const toolInput = data.tool_input || {};
 
-  // Only inspect send-related tools
-  if (
-    !toolName.includes("send_email") &&
-    !toolName.includes("send_reply") &&
-    !toolName.includes("forward_email")
-  ) {
-    process.exit(0);
-  }
+  let toDisplay, subject, body, action;
 
-  const rawTo = toolInput.to || toolInput.recipient || "(unknown)";
-  const toList = Array.isArray(rawTo) ? rawTo : [rawTo];
-  const toDisplay = toList.join(", ");
-  const subject = toolInput.subject || "(no subject)";
-  const body = toolInput.body || toolInput.message || "";
-  const action = toolName.includes("forward")
-    ? "FORWARD"
-    : toolName.includes("reply")
-      ? "REPLY"
-      : "SEND";
+  if (toolName === "Bash") {
+    // Check if this is an inboxapi CLI send command
+    const cmd = (toolInput.command || "");
+    if (!cmd.includes("inboxapi")) {
+      process.exit(0);
+    }
+    const isSend = cmd.includes("send-email");
+    const isReply = cmd.includes("send-reply");
+    const isForward = cmd.includes("forward-email");
+    if (!isSend && !isReply && !isForward) {
+      process.exit(0);
+    }
+
+    // Best-effort extraction from CLI flags
+    // Captures: "quoted", 'quoted', or unquoted value until next --flag or end of string
+    const toMatch = cmd.match(/--to(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3] || "").trim()) || "(unknown)";
+    const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3] || "").trim()) || "(no subject)";
+    const bodyMatch = cmd.match(/--body(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    body = (bodyMatch && (bodyMatch[1] || bodyMatch[2] || bodyMatch[3] || "").trim()) || "";
+    action = isForward ? "FORWARD" : isReply ? "REPLY" : "SEND";
+  } else {
+    // MCP tool call path (existing logic)
+    if (
+      !toolName.includes("send_email") &&
+      !toolName.includes("send_reply") &&
+      !toolName.includes("forward_email")
+    ) {
+      process.exit(0);
+    }
+
+    const rawTo = toolInput.to || toolInput.recipient || "(unknown)";
+    const toList = Array.isArray(rawTo) ? rawTo : [rawTo];
+    toDisplay = toList.join(", ");
+    subject = toolInput.subject || "(no subject)";
+    body = toolInput.body || toolInput.message || "";
+    action = toolName.includes("forward")
+      ? "FORWARD"
+      : toolName.includes("reply")
+        ? "REPLY"
+        : "SEND";
+  }
 
   // Log details to stderr so the user sees them in the Claude Code UI
   process.stderr.write(`\n[InboxAPI Send Guard] ${action}\n`);
@@ -48,9 +74,7 @@ function main() {
   process.stderr.write("\n");
 
   // Check for self-send (common AI agent mistake)
-  const hasInboxApiRecipient = toList.some(
-    (addr) => typeof addr === "string" && (addr.includes("@inboxapi.ai") || addr.includes("@inboxapi.com")),
-  );
+  const hasInboxApiRecipient = toDisplay.includes("@inboxapi.ai") || toDisplay.includes("@inboxapi.com");
   if (hasInboxApiRecipient) {
     process.stderr.write(
       `  [WARNING] Recipient is an @inboxapi address. Did you mean to send to an external address?\n\n`,

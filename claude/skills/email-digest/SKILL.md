@@ -13,13 +13,13 @@ Generate a structured digest of recent email activity.
 
 1. **Determine timeframe**: Use `$ARGUMENTS` if provided (e.g., "today", "this week", "last 3 days"), otherwise default to "last 24 hours"
 
-2. **Get account info**: Call `mcp__inboxapi__whoami` for the account email
+2. **Get account info**: Run: `npx -y @inboxapi/cli whoami` for the account email
 
-3. **Get total count**: Call `mcp__inboxapi__get_email_count` for inbox statistics
+3. **Get total count**: Run: `npx -y @inboxapi/cli get-email-count` for inbox statistics
 
-4. **Fetch recent emails**: Call `mcp__inboxapi__get_emails` with an appropriate limit (50 for digest)
+4. **Fetch recent emails**: Run: `npx -y @inboxapi/cli get-emails --limit 50`
 
-5. **Group by thread**: For threads with multiple emails, call `mcp__inboxapi__get_thread` to understand the conversation
+5. **Group by thread**: For threads with multiple emails, run `npx -y @inboxapi/cli get-thread --message-id "<message-id>"` to understand the conversation
 
 6. **Generate digest** with these sections:
 
@@ -53,6 +53,7 @@ Generate a structured digest of recent email activity.
 
 ## Notes
 
+- All CLI commands output JSON by default — parse the JSON response to extract the relevant fields
 - Focus on actionable insights, not raw data
 - Highlight emails that likely need a response
 - Keep the digest concise — summarize, don't reproduce full emails
