@@ -1,6 +1,6 @@
 {
   "name": "@inboxapi/cli",
-  "version": "0.2.25",
+  "version": "0.3.0",
   "description": "📧 Email for your AI 🤖",
   "main": "index.js",
   "bin": {
@@ -33,8 +33,5 @@
     "@inboxapi/cli-linux-arm64": "0.1.0",
     "@inboxapi/cli-linux-x64": "0.1.0",
     "@inboxapi/cli-win32-x64": "0.1.0"
-  },
-  "dependencies": {
-    "@inboxapi/cli": "^0.2.25"
   }
 }
