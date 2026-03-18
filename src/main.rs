@@ -1376,15 +1376,7 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                             .as_str()
                             .or_else(|| msg["text_body"].as_str())
                             .unwrap_or("");
-                        let preview = {
-                            let mut chars = body.chars().take(101);
-                            let truncated: String = (&mut chars).take(100).collect();
-                            if chars.next().is_some() {
-                                format!("{}...", truncated)
-                            } else {
-                                truncated
-                            }
-                        };
+                        let preview = truncate_with_ellipsis(body, 100);
                         lines.push(format!(
                             "[{}] From: {} ({})\n  {}",
                             i + 1,
@@ -1448,15 +1440,7 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                             .as_str()
                             .or_else(|| item["message"].as_str())
                             .unwrap_or("");
-                        let preview = {
-                            let mut chars = body.chars().take(121);
-                            let truncated: String = (&mut chars).take(120).collect();
-                            if chars.next().is_some() {
-                                format!("{}...", truncated)
-                            } else {
-                                truncated
-                            }
-                        };
+                        let preview = truncate_with_ellipsis(body, 120);
                         lines.push(format!("  [{}] {}\n    {}", date, title, preview));
                     }
                     format!("{} announcement(s):\n{}", items.len(), lines.join("\n"))
@@ -1488,6 +1472,17 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
             }
         }
         _ => text.to_string(),
+    }
+}
+
+/// Truncate a string to `max_len` characters, appending "..." if truncated.
+fn truncate_with_ellipsis(s: &str, max_len: usize) -> String {
+    let mut chars = s.chars().take(max_len + 1);
+    let truncated: String = (&mut chars).take(max_len).collect();
+    if chars.next().is_some() {
+        format!("{}...", truncated)
+    } else {
+        truncated
     }
 }
 
@@ -1550,6 +1545,20 @@ Examples:
   inboxapi send-reply --message-id \"<msg-id>\" --body \"Thanks!\"
   inboxapi forward-email --message-id \"<msg-id>\" --to recipient@example.com
 ";
+
+/// Run a simple MCP tool call with no arguments, print the result.
+async fn run_simple_command(
+    tool_name: &str,
+    endpoint: &str,
+    creds: &mut Option<Credentials>,
+    http_client: &HttpClient,
+    human: bool,
+) -> Result<()> {
+    let response = call_mcp_tool(endpoint, creds, http_client, tool_name, json!({})).await?;
+    let text = extract_tool_result_text(&response)?;
+    print_result(tool_name, &text, human);
+    Ok(())
+}
 
 /// Run a CLI subcommand that calls an MCP tool.
 async fn run_cli_command(cli: &Cli) -> Result<()> {
@@ -1755,16 +1764,14 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             print_result("forward_email", &text, cli.human);
         }
         Some(Commands::GetLastEmail) => {
-            let response = call_mcp_tool(
+            run_simple_command(
+                "get_last_email",
                 &endpoint,
                 &mut creds,
                 &http_client,
-                "get_last_email",
-                json!({}),
+                cli.human,
             )
             .await?;
-            let text = extract_tool_result_text(&response)?;
-            print_result("get_last_email", &text, cli.human);
         }
         Some(Commands::GetEmailCount { ref since }) => {
             let mut args = json!({});
@@ -1804,40 +1811,34 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             print_result("get_thread", &text, cli.human);
         }
         Some(Commands::GetAddressbook) => {
-            let response = call_mcp_tool(
+            run_simple_command(
+                "get_addressbook",
                 &endpoint,
                 &mut creds,
                 &http_client,
-                "get_addressbook",
-                json!({}),
+                cli.human,
             )
             .await?;
-            let text = extract_tool_result_text(&response)?;
-            print_result("get_addressbook", &text, cli.human);
         }
         Some(Commands::GetAnnouncements) => {
-            let response = call_mcp_tool(
+            run_simple_command(
+                "get_announcements",
                 &endpoint,
                 &mut creds,
                 &http_client,
-                "get_announcements",
-                json!({}),
+                cli.human,
             )
             .await?;
-            let text = extract_tool_result_text(&response)?;
-            print_result("get_announcements", &text, cli.human);
         }
         Some(Commands::AuthIntrospect) => {
-            let response = call_mcp_tool(
+            run_simple_command(
+                "auth_introspect",
                 &endpoint,
                 &mut creds,
                 &http_client,
-                "auth_introspect",
-                json!({}),
+                cli.human,
             )
             .await?;
-            let text = extract_tool_result_text(&response)?;
-            print_result("auth_introspect", &text, cli.human);
         }
         Some(Commands::AuthRevoke { ref token }) => {
             let args = json!({"token": token});
@@ -1847,16 +1848,14 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             print_result("auth_revoke", &text, cli.human);
         }
         Some(Commands::AuthRevokeAll) => {
-            let response = call_mcp_tool(
+            run_simple_command(
+                "auth_revoke_all",
                 &endpoint,
                 &mut creds,
                 &http_client,
-                "auth_revoke_all",
-                json!({}),
+                cli.human,
             )
             .await?;
-            let text = extract_tool_result_text(&response)?;
-            print_result("auth_revoke_all", &text, cli.human);
         }
         Some(Commands::AccountRecover {
             ref name,
@@ -1886,28 +1885,24 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             print_result("verify_owner", &text, cli.human);
         }
         Some(Commands::EnableEncryption) => {
-            let response = call_mcp_tool(
+            run_simple_command(
+                "enable_encryption",
                 &endpoint,
                 &mut creds,
                 &http_client,
-                "enable_encryption",
-                json!({}),
+                cli.human,
             )
             .await?;
-            let text = extract_tool_result_text(&response)?;
-            print_result("enable_encryption", &text, cli.human);
         }
         Some(Commands::ResetEncryption) => {
-            let response = call_mcp_tool(
+            run_simple_command(
+                "reset_encryption",
                 &endpoint,
                 &mut creds,
                 &http_client,
-                "reset_encryption",
-                json!({}),
+                cli.human,
             )
             .await?;
-            let text = extract_tool_result_text(&response)?;
-            print_result("reset_encryption", &text, cli.human);
         }
         Some(Commands::RotateEncryptionSecret {
             ref old_secret,

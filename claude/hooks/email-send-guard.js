@@ -33,12 +33,13 @@ function main() {
     }
 
     // Best-effort extraction from CLI flags
-    const toMatch = cmd.match(/--to(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/);
-    toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3])) || "(unknown)";
-    const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/);
-    subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3])) || "(no subject)";
-    const bodyMatch = cmd.match(/--body(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/);
-    body = (bodyMatch && (bodyMatch[1] || bodyMatch[2] || bodyMatch[3])) || "";
+    // Captures: "quoted", 'quoted', or unquoted value until next --flag or end of string
+    const toMatch = cmd.match(/--to(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3] || "").trim()) || "(unknown)";
+    const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3] || "").trim()) || "(no subject)";
+    const bodyMatch = cmd.match(/--body(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    body = (bodyMatch && (bodyMatch[1] || bodyMatch[2] || bodyMatch[3] || "").trim()) || "";
     action = isForward ? "FORWARD" : isReply ? "REPLY" : "SEND";
   } else {
     // MCP tool call path (existing logic)
