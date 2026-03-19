@@ -760,10 +760,15 @@ impl Agent {
 }
 
 fn detect_agents() -> Vec<(Agent, bool)> {
+    #[cfg(windows)]
+    let lookup_cmd = "where";
+    #[cfg(not(windows))]
+    let lookup_cmd = "which";
+
     [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::OpenCode]
         .into_iter()
         .map(|agent| {
-            let found = std::process::Command::new("which")
+            let found = std::process::Command::new(lookup_cmd)
                 .arg(agent.binary())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -1097,21 +1102,22 @@ fn setup_skills(agents: HashSet<Agent>, force: bool) -> Result<()> {
     println!("InboxAPI skills installed:");
     println!();
     for (agent, _skills, hooks) in &summary {
-        let dir = match agent {
-            Agent::Claude => ".claude/skills/",
-            Agent::Codex => ".agents/skills/",
-            Agent::Gemini => ".gemini/skills/",
-            Agent::OpenCode => ".opencode/commands/",
+        let (dir, skill_count) = match agent {
+            Agent::Claude => (".claude/skills/", SKILLS.len()),
+            Agent::Codex => (".agents/skills/", CODEX_SKILLS.len()),
+            Agent::Gemini => (".gemini/skills/", GEMINI_SKILLS.len()),
+            Agent::OpenCode => (".opencode/commands/", OPENCODE_COMMANDS.len()),
         };
         let hooks_str = if *hooks > 0 {
-            format!(", {} hooks", hooks)
+            format!(", {} hooks", HOOKS.len())
         } else {
             String::new()
         };
         println!(
-            "  \u{2713} {:<14} {}    (7 skills{})",
+            "  \u{2713} {:<14} {}    ({} skills{})",
             format!("{}:", agent.label()),
             dir,
+            skill_count,
             hooks_str
         );
     }
@@ -6255,5 +6261,164 @@ mod tests {
         assert!(CLI_HELP_TEXT.contains("--human"));
         assert!(CLI_HELP_TEXT.contains("--limit"));
         assert!(CLI_HELP_TEXT.contains("--output"));
+    }
+
+    // --- Multi-agent setup-skills tests ---
+
+    #[test]
+    fn agent_enum_all_returns_four_agents() {
+        let all = Agent::all();
+        assert_eq!(all.len(), 4);
+        assert!(all.contains(&Agent::Claude));
+        assert!(all.contains(&Agent::Codex));
+        assert!(all.contains(&Agent::Gemini));
+        assert!(all.contains(&Agent::OpenCode));
+    }
+
+    #[test]
+    fn agent_labels_are_human_readable() {
+        assert_eq!(Agent::Claude.label(), "Claude Code");
+        assert_eq!(Agent::Codex.label(), "Codex CLI");
+        assert_eq!(Agent::Gemini.label(), "Gemini CLI");
+        assert_eq!(Agent::OpenCode.label(), "OpenCode");
+    }
+
+    #[test]
+    fn agent_binaries_are_correct() {
+        assert_eq!(Agent::Claude.binary(), "claude");
+        assert_eq!(Agent::Codex.binary(), "codex");
+        assert_eq!(Agent::Gemini.binary(), "gemini");
+        assert_eq!(Agent::OpenCode.binary(), "opencode");
+    }
+
+    #[test]
+    fn write_if_needed_creates_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.md");
+        let status = write_if_needed(&path, "hello", false).unwrap();
+        assert_eq!(status, "installed");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello");
+    }
+
+    #[test]
+    fn write_if_needed_reports_up_to_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.md");
+        std::fs::write(&path, "hello").unwrap();
+        let status = write_if_needed(&path, "hello", false).unwrap();
+        assert_eq!(status, "up-to-date");
+    }
+
+    #[test]
+    fn write_if_needed_skips_differing_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.md");
+        std::fs::write(&path, "local edit").unwrap();
+        let status = write_if_needed(&path, "bundled", false).unwrap();
+        assert_eq!(status, "skipped");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "local edit");
+    }
+
+    #[test]
+    fn write_if_needed_force_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.md");
+        std::fs::write(&path, "local edit").unwrap();
+        let status = write_if_needed(&path, "bundled", true).unwrap();
+        assert_eq!(status, "installed");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "bundled");
+    }
+
+    #[test]
+    fn install_skills_to_dir_creates_correct_structure() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join("skills");
+        let skills: &[(&str, &str)] = &[("test-skill", "# Test\nContent")];
+        let (installed, up, skipped) = install_skills_to_dir(&base, skills, false).unwrap();
+        assert_eq!(installed, 1);
+        assert_eq!(up, 0);
+        assert_eq!(skipped, 0);
+        let path = base.join("test-skill/SKILL.md");
+        assert!(path.exists());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Test\nContent");
+    }
+
+    #[test]
+    fn install_skills_to_dir_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join("skills");
+        let skills: &[(&str, &str)] = &[("test-skill", "# Test")];
+        install_skills_to_dir(&base, skills, false).unwrap();
+        let (installed, up, skipped) = install_skills_to_dir(&base, skills, false).unwrap();
+        assert_eq!(installed, 0);
+        assert_eq!(up, 1);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn install_opencode_commands_creates_flat_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        let commands: &[(&str, &str)] = &[("test-cmd", "---\ndescription: Test\n---\n# Test")];
+        let (installed, up, skipped) = install_opencode_commands(commands, false).unwrap();
+        assert_eq!(installed, 1);
+        assert_eq!(up, 0);
+        assert_eq!(skipped, 0);
+        let path = dir.path().join(".opencode/commands/test-cmd.md");
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn detect_agents_returns_four_entries() {
+        let detected = detect_agents();
+        assert_eq!(detected.len(), 4);
+        assert_eq!(detected[0].0, Agent::Claude);
+        assert_eq!(detected[1].0, Agent::Codex);
+        assert_eq!(detected[2].0, Agent::Gemini);
+        assert_eq!(detected[3].0, Agent::OpenCode);
+    }
+
+    #[test]
+    fn embedded_skill_arrays_have_same_length() {
+        assert_eq!(SKILLS.len(), CODEX_SKILLS.len());
+        assert_eq!(SKILLS.len(), GEMINI_SKILLS.len());
+        assert_eq!(SKILLS.len(), OPENCODE_COMMANDS.len());
+    }
+
+    #[test]
+    fn embedded_skill_names_match_across_agents() {
+        for i in 0..SKILLS.len() {
+            assert_eq!(SKILLS[i].0, CODEX_SKILLS[i].0);
+            assert_eq!(SKILLS[i].0, GEMINI_SKILLS[i].0);
+            assert_eq!(SKILLS[i].0, OPENCODE_COMMANDS[i].0);
+        }
+    }
+
+    #[test]
+    fn codex_skills_have_no_claude_frontmatter() {
+        for (_, content) in CODEX_SKILLS {
+            assert!(
+                !content.contains("user-invocable"),
+                "Codex skills must not contain 'user-invocable' frontmatter"
+            );
+            assert!(
+                !content.contains("argument-hint"),
+                "Codex skills must not contain 'argument-hint' frontmatter"
+            );
+            assert!(
+                !content.contains("disable-model-invocation"),
+                "Codex skills must not contain 'disable-model-invocation' frontmatter"
+            );
+        }
+    }
+
+    #[test]
+    fn opencode_commands_have_description_frontmatter() {
+        for (_, content) in OPENCODE_COMMANDS {
+            assert!(
+                content.starts_with("---\ndescription:"),
+                "OpenCode commands must start with description frontmatter"
+            );
+        }
     }
 }
