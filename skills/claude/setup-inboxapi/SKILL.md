@@ -1,13 +1,13 @@
 ---
 name: setup-inboxapi
-description: Set up InboxAPI email tools in your Claude Code project. Adds MCP server config, installs skills, and configures safety hooks. Use when the user wants to configure InboxAPI for their project.
+description: Set up InboxAPI email tools in your AI coding agent. Adds MCP server config, installs skills, and configures safety hooks. Use when the user wants to configure InboxAPI for their project.
 user-invocable: true
 disable-model-invocation: true
 ---
 
 # Setup InboxAPI
 
-Configure InboxAPI email tools for this Claude Code project.
+Configure InboxAPI email tools for this project. Supports Claude Code, Codex CLI, Gemini CLI, and OpenCode.
 
 ## Steps
 
@@ -28,7 +28,19 @@ Configure InboxAPI email tools for this Claude Code project.
      }
      ```
 
-3. **Install skills**: Run `npx -y @inboxapi/cli setup-skills` to copy bundled skills and hooks into the project's `.claude/` directory
+   **For other agents:**
+   - **Codex CLI**: `codex mcp add inboxapi -- npx -y @inboxapi/cli`
+   - **Gemini CLI**: Add to `settings.json` under `mcpServers`:
+     ```json
+     { "mcpServers": { "inboxapi": { "command": "npx", "args": ["-y", "@inboxapi/cli"] } } }
+     ```
+   - **OpenCode**: Add to `opencode.json` under `mcp`:
+     ```json
+     { "mcp": { "inboxapi": { "command": "npx", "args": ["-y", "@inboxapi/cli"] } } }
+     ```
+
+3. **Install skills**: Run `npx -y @inboxapi/cli setup-skills` to install skills for detected agents
+   - Use `--all` to install for all agents, or `--claude`, `--codex`, `--gemini`, `--opencode` for specific ones
 
 4. **Verify credentials**:
    - Run: `npx -y @inboxapi/cli whoami` to check if credentials are set up
@@ -49,7 +61,7 @@ Configure InboxAPI email tools for this Claude Code project.
      /email-digest — Email activity digest
      /email-forward — Forward emails
 
-   Installed Hooks:
+   Installed Hooks (Claude Code only):
      PreToolUse  — Email send guard (reviews before sending)
      PostToolUse — Activity logger (audit trail)
      SessionStart — Credential check (verifies auth on startup)

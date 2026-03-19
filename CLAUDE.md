@@ -33,6 +33,10 @@ Rust-based STDIO proxy that bridges JSON-RPC (MCP protocol) over STDIO to the re
 - `cargo run -- enable-encryption` — enable email encryption
 - `cargo run -- reset-encryption` — reset email encryption
 - `cargo run -- rotate-encryption --old-secret "x" --new-secret "y"` — rotate encryption secret
+- `cargo run -- setup-skills` — install skills for detected AI agents (interactive)
+- `cargo run -- setup-skills --all` — install skills for all agents (Claude, Codex, Gemini, OpenCode)
+- `cargo run -- setup-skills --claude --codex` — install for specific agents
+- `cargo run -- setup-skills --force` — overwrite existing files
 - `cargo run -- help` — show CLI help with examples
 
 ## Architecture
@@ -52,6 +56,11 @@ Rust-based STDIO proxy that bridges JSON-RPC (MCP protocol) over STDIO to the re
 
 ## Key Files
 - `src/main.rs` — proxy logic, token injection, login flow, hashcash PoW
+- `skills/claude/*/SKILL.md` — Claude Code skill definitions (7 skills)
+- `skills/codex/*/SKILL.md` — Codex CLI skill definitions (7 skills)
+- `skills/gemini/*/SKILL.md` — Gemini CLI skill definitions (7 skills)
+- `skills/opencode/*.md` — OpenCode command definitions (7 commands)
+- `skills/hooks/*.js` — Claude Code hook scripts (3 hooks)
 - `index.js` — npm binary resolver (platform package → local build → cargo run)
 - `package.json` — root npm package with optionalDependencies
 - `npm/cli-*/package.json` — platform-specific npm package manifests

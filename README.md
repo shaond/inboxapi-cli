@@ -147,11 +147,13 @@ inboxapi restore ./my-backup
 
 ### `setup-skills`
 
-Installs Claude Code skills (slash commands) and hooks into the current project. Skills add email workflows like `/check-inbox`, `/compose`, and `/email-search` directly into Claude Code. Hooks provide automatic credential checks, email send guardrails, and activity logging.
+Installs InboxAPI skills for AI coding agents. Supports **Claude Code**, **Codex CLI**, **Gemini CLI**, and **OpenCode**. Auto-detects installed agents and prompts for confirmation, or use flags for non-interactive installation.
 
 ```bash
-inboxapi setup-skills
-inboxapi setup-skills --force  # Overwrite existing skills and hooks
+inboxapi setup-skills              # Auto-detect agents, interactive prompt
+inboxapi setup-skills --all        # Install for all 4 agents
+inboxapi setup-skills --claude --codex  # Install for specific agents
+inboxapi setup-skills --force      # Overwrite existing skills and hooks
 ```
 
 ## CLI Commands
@@ -279,13 +281,23 @@ When prompted, enter:
 codex mcp add inboxapi inboxapi
 ```
 
-## Skills for Claude Code
+## Skills for AI Coding Agents
 
-InboxAPI includes a set of skills — Claude Code slash commands — that add guided email workflows to your project. Install them with:
+InboxAPI includes skills — slash commands and guided workflows — for multiple AI coding agents. Install them with:
 
 ```bash
-inboxapi setup-skills
+inboxapi setup-skills        # Auto-detect and install
+inboxapi setup-skills --all  # Install for all agents
 ```
+
+Skills are installed to agent-specific directories:
+
+| Agent | Install Directory |
+|-------|-------------------|
+| Claude Code | `.claude/skills/` |
+| Codex CLI | `.agents/skills/` |
+| Gemini CLI | `.gemini/skills/` |
+| OpenCode | `.opencode/commands/` |
 
 ### Available Skills
 
@@ -297,11 +309,11 @@ inboxapi setup-skills
 | `/email-reply` | Reply to an email with full thread context and preview before sending |
 | `/email-digest` | Generate a structured digest of recent email activity grouped by threads |
 | `/email-forward` | Forward an email to another recipient with an optional note |
-| `/setup-inboxapi` | Configure InboxAPI MCP server and install skills into a Claude Code project |
+| `/setup-inboxapi` | Configure InboxAPI MCP server and install skills for your AI coding agent |
 
-### Hooks
+### Hooks (Claude Code only)
 
-The `setup-skills` command also installs three hooks that run automatically:
+The `setup-skills` command also installs three hooks for Claude Code that run automatically:
 
 | Hook | Type | Description |
 |------|------|-------------|
