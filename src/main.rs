@@ -7,6 +7,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tokio::io::{stdin, stdout, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -55,12 +56,27 @@ enum Commands {
         /// Source folder containing the backup
         folder: String,
     },
-    /// Install Claude Code skills and hooks into the current project
+    /// Install InboxAPI skills for AI coding agents (Claude, Codex, Gemini, OpenCode)
     SetupSkills {
         /// Overwrite existing skill and hook files even if they have local edits.
         /// Note: .claude/settings.json is always merged (not overwritten) regardless of this flag.
         #[arg(long)]
         force: bool,
+        /// Install for all supported agents
+        #[arg(long)]
+        all: bool,
+        /// Install for Claude Code
+        #[arg(long)]
+        claude: bool,
+        /// Install for Codex CLI
+        #[arg(long)]
+        codex: bool,
+        /// Install for Gemini CLI
+        #[arg(long)]
+        gemini: bool,
+        /// Install for OpenCode
+        #[arg(long)]
+        opencode: bool,
     },
     /// Send an email
     SendEmail {
@@ -580,50 +596,388 @@ fn restore_credentials(folder: &str) -> Result<()> {
     Ok(())
 }
 
-// --- Embedded Claude Code skills and hooks ---
+// --- Embedded skills and hooks for all supported agents ---
 
 static SKILLS: &[(&str, &str)] = &[
     (
         "check-inbox",
-        include_str!("../claude/skills/check-inbox/SKILL.md"),
+        include_str!("../skills/claude/check-inbox/SKILL.md"),
     ),
-    ("compose", include_str!("../claude/skills/compose/SKILL.md")),
+    ("compose", include_str!("../skills/claude/compose/SKILL.md")),
     (
         "email-search",
-        include_str!("../claude/skills/email-search/SKILL.md"),
+        include_str!("../skills/claude/email-search/SKILL.md"),
     ),
     (
         "email-reply",
-        include_str!("../claude/skills/email-reply/SKILL.md"),
+        include_str!("../skills/claude/email-reply/SKILL.md"),
     ),
     (
         "email-digest",
-        include_str!("../claude/skills/email-digest/SKILL.md"),
+        include_str!("../skills/claude/email-digest/SKILL.md"),
     ),
     (
         "email-forward",
-        include_str!("../claude/skills/email-forward/SKILL.md"),
+        include_str!("../skills/claude/email-forward/SKILL.md"),
     ),
     (
         "setup-inboxapi",
-        include_str!("../claude/skills/setup-inboxapi/SKILL.md"),
+        include_str!("../skills/claude/setup-inboxapi/SKILL.md"),
+    ),
+];
+
+static CODEX_SKILLS: &[(&str, &str)] = &[
+    (
+        "check-inbox",
+        include_str!("../skills/codex/check-inbox/SKILL.md"),
+    ),
+    ("compose", include_str!("../skills/codex/compose/SKILL.md")),
+    (
+        "email-search",
+        include_str!("../skills/codex/email-search/SKILL.md"),
+    ),
+    (
+        "email-reply",
+        include_str!("../skills/codex/email-reply/SKILL.md"),
+    ),
+    (
+        "email-digest",
+        include_str!("../skills/codex/email-digest/SKILL.md"),
+    ),
+    (
+        "email-forward",
+        include_str!("../skills/codex/email-forward/SKILL.md"),
+    ),
+    (
+        "setup-inboxapi",
+        include_str!("../skills/codex/setup-inboxapi/SKILL.md"),
+    ),
+];
+
+static GEMINI_SKILLS: &[(&str, &str)] = &[
+    (
+        "check-inbox",
+        include_str!("../skills/gemini/check-inbox/SKILL.md"),
+    ),
+    ("compose", include_str!("../skills/gemini/compose/SKILL.md")),
+    (
+        "email-search",
+        include_str!("../skills/gemini/email-search/SKILL.md"),
+    ),
+    (
+        "email-reply",
+        include_str!("../skills/gemini/email-reply/SKILL.md"),
+    ),
+    (
+        "email-digest",
+        include_str!("../skills/gemini/email-digest/SKILL.md"),
+    ),
+    (
+        "email-forward",
+        include_str!("../skills/gemini/email-forward/SKILL.md"),
+    ),
+    (
+        "setup-inboxapi",
+        include_str!("../skills/gemini/setup-inboxapi/SKILL.md"),
+    ),
+];
+
+static OPENCODE_COMMANDS: &[(&str, &str)] = &[
+    (
+        "check-inbox",
+        include_str!("../skills/opencode/check-inbox.md"),
+    ),
+    ("compose", include_str!("../skills/opencode/compose.md")),
+    (
+        "email-search",
+        include_str!("../skills/opencode/email-search.md"),
+    ),
+    (
+        "email-reply",
+        include_str!("../skills/opencode/email-reply.md"),
+    ),
+    (
+        "email-digest",
+        include_str!("../skills/opencode/email-digest.md"),
+    ),
+    (
+        "email-forward",
+        include_str!("../skills/opencode/email-forward.md"),
+    ),
+    (
+        "setup-inboxapi",
+        include_str!("../skills/opencode/setup-inboxapi.md"),
     ),
 ];
 
 static HOOKS: &[(&str, &str)] = &[
     (
         "email-send-guard.js",
-        include_str!("../claude/hooks/email-send-guard.js"),
+        include_str!("../skills/hooks/email-send-guard.js"),
     ),
     (
         "email-activity-logger.js",
-        include_str!("../claude/hooks/email-activity-logger.js"),
+        include_str!("../skills/hooks/email-activity-logger.js"),
     ),
     (
         "credential-check.js",
-        include_str!("../claude/hooks/credential-check.js"),
+        include_str!("../skills/hooks/credential-check.js"),
     ),
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Agent {
+    Claude,
+    Codex,
+    Gemini,
+    OpenCode,
+}
+
+impl Agent {
+    fn all() -> HashSet<Agent> {
+        [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::OpenCode]
+            .into_iter()
+            .collect()
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Agent::Claude => "Claude Code",
+            Agent::Codex => "Codex CLI",
+            Agent::Gemini => "Gemini CLI",
+            Agent::OpenCode => "OpenCode",
+        }
+    }
+
+    fn binary(&self) -> &'static str {
+        match self {
+            Agent::Claude => "claude",
+            Agent::Codex => "codex",
+            Agent::Gemini => "gemini",
+            Agent::OpenCode => "opencode",
+        }
+    }
+}
+
+fn detect_agents() -> Vec<(Agent, bool)> {
+    [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::OpenCode]
+        .into_iter()
+        .map(|agent| {
+            let found = std::process::Command::new("which")
+                .arg(agent.binary())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            (agent, found)
+        })
+        .collect()
+}
+
+fn prompt_agent_selection(detected: &[(Agent, bool)]) -> Result<HashSet<Agent>> {
+    let any_detected = detected.iter().any(|(_, found)| *found);
+
+    println!("Detected AI coding agents:");
+    for (agent, found) in detected {
+        let check = if *found { "x" } else { " " };
+        let status = if *found {
+            format!("{} found", agent.binary())
+        } else {
+            "not found".to_string()
+        };
+        println!("  [{}] {}  ({})", check, agent.label(), status);
+    }
+    println!();
+
+    if !any_detected {
+        println!("No agents detected on PATH. Select agents to install for:");
+        println!();
+        for (i, (agent, _)) in detected.iter().enumerate() {
+            println!("  {}. {}", i + 1, agent.label());
+        }
+        println!("  a. All agents");
+        println!();
+        eprint!("Enter numbers (comma-separated) or 'a' for all: ");
+
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .context("Failed to read input")?;
+        let input = input.trim().to_lowercase();
+
+        if input == "a" {
+            return Ok(Agent::all());
+        }
+
+        let mut selected = HashSet::new();
+        for part in input.split(',') {
+            if let Ok(n) = part.trim().parse::<usize>() {
+                if n >= 1 && n <= detected.len() {
+                    selected.insert(detected[n - 1].0);
+                }
+            }
+        }
+
+        if selected.is_empty() {
+            anyhow::bail!("No agents selected");
+        }
+        return Ok(selected);
+    }
+
+    eprint!("Install for these agents? [Y/n/edit] ");
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .context("Failed to read input")?;
+    let input = input.trim().to_lowercase();
+
+    if input == "n" {
+        anyhow::bail!("Installation cancelled");
+    }
+
+    if input == "edit" {
+        println!();
+        println!("Toggle agents (enter numbers, comma-separated):");
+        for (i, (agent, found)) in detected.iter().enumerate() {
+            let check = if *found { "x" } else { " " };
+            println!("  {}. [{}] {}", i + 1, check, agent.label());
+        }
+        println!();
+        eprint!("Toggle: ");
+
+        let mut toggle_input = String::new();
+        std::io::stdin()
+            .read_line(&mut toggle_input)
+            .context("Failed to read input")?;
+
+        let mut selected: HashSet<Agent> = detected
+            .iter()
+            .filter(|(_, found)| *found)
+            .map(|(agent, _)| *agent)
+            .collect();
+
+        for part in toggle_input.trim().split(',') {
+            if let Ok(n) = part.trim().parse::<usize>() {
+                if n >= 1 && n <= detected.len() {
+                    let agent = detected[n - 1].0;
+                    if selected.contains(&agent) {
+                        selected.remove(&agent);
+                    } else {
+                        selected.insert(agent);
+                    }
+                }
+            }
+        }
+
+        if selected.is_empty() {
+            anyhow::bail!("No agents selected");
+        }
+        return Ok(selected);
+    }
+
+    // Default: install for detected agents
+    Ok(detected
+        .iter()
+        .filter(|(_, found)| *found)
+        .map(|(agent, _)| *agent)
+        .collect())
+}
+
+/// Write a file if it doesn't exist, content differs, or force is set.
+/// Returns a status string for display.
+fn write_if_needed(path: &Path, content: &str, force: bool) -> Result<&'static str> {
+    if path.exists() && !force {
+        let existing = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read existing {}", path.display()))?;
+        if existing == content {
+            return Ok("up-to-date");
+        }
+        return Ok("skipped");
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+    }
+    std::fs::write(path, content).with_context(|| format!("Failed to write {}", path.display()))?;
+    Ok("installed")
+}
+
+fn install_skills_to_dir(
+    base_dir: &Path,
+    skills: &[(&str, &str)],
+    force: bool,
+) -> Result<(usize, usize, usize)> {
+    let mut installed = 0;
+    let mut up_to_date = 0;
+    let mut skipped = 0;
+
+    for (name, content) in skills {
+        let dir = base_dir.join(name);
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create directory {}", dir.display()))?;
+        let path = dir.join("SKILL.md");
+        match write_if_needed(&path, content, force)? {
+            "installed" => {
+                println!("  Installed skill: /{}  ({})", name, path.display());
+                installed += 1;
+            }
+            "up-to-date" => {
+                println!("  Up to date:      /{}  ({})", name, path.display());
+                up_to_date += 1;
+            }
+            _ => {
+                println!(
+                    "  Skipped (file differs from bundled version): /{}  ({})",
+                    name,
+                    path.display()
+                );
+                println!("    Use --force to overwrite");
+                skipped += 1;
+            }
+        }
+    }
+
+    Ok((installed, up_to_date, skipped))
+}
+
+fn install_opencode_commands(
+    commands: &[(&str, &str)],
+    force: bool,
+) -> Result<(usize, usize, usize)> {
+    let base = PathBuf::from(".opencode/commands");
+    std::fs::create_dir_all(&base)
+        .with_context(|| format!("Failed to create directory {}", base.display()))?;
+
+    let mut installed = 0;
+    let mut up_to_date = 0;
+    let mut skipped = 0;
+
+    for (name, content) in commands {
+        let path = base.join(format!("{}.md", name));
+        match write_if_needed(&path, content, force)? {
+            "installed" => {
+                println!("  Installed command: /{}  ({})", name, path.display());
+                installed += 1;
+            }
+            "up-to-date" => {
+                println!("  Up to date:       /{}  ({})", name, path.display());
+                up_to_date += 1;
+            }
+            _ => {
+                println!(
+                    "  Skipped (file differs from bundled version): /{}  ({})",
+                    name,
+                    path.display()
+                );
+                println!("    Use --force to overwrite");
+                skipped += 1;
+            }
+        }
+    }
+
+    Ok((installed, up_to_date, skipped))
+}
 
 // NOTE: The matchers below include `|Bash` so hooks fire for CLI invocations
 // (e.g. `npx -y @inboxapi/cli send-email ...`). The Node hook scripts exit in
@@ -668,69 +1022,100 @@ static HOOKS_SETTINGS: &str = r#"{
   }
 }"#;
 
-fn setup_skills(force: bool) -> Result<()> {
-    let base = PathBuf::from(".claude");
-
-    // Write skills (skip if on-disk content already matches, unless --force)
-    for (name, content) in SKILLS {
-        let dir = base.join("skills").join(name);
-        std::fs::create_dir_all(&dir)
-            .with_context(|| format!("Failed to create directory {}", dir.display()))?;
-        let path = dir.join("SKILL.md");
-        if path.exists() && !force {
-            let existing = std::fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read existing {}", path.display()))?;
-            if existing == *content {
-                println!("  Up to date:      /{}  ({})", name, path.display());
-                continue;
-            }
-            println!(
-                "  Skipped (file differs from bundled version): /{}  ({})",
-                name,
-                path.display()
-            );
-            println!("    Use --force to overwrite");
-            continue;
-        }
-        std::fs::write(&path, content)
-            .with_context(|| format!("Failed to write {}", path.display()))?;
-        println!("  Installed skill: /{}  ({})", name, path.display());
-    }
-
-    // Write hooks (skip if on-disk content already matches, unless --force)
-    let hooks_dir = base.join("hooks");
-    std::fs::create_dir_all(&hooks_dir)
-        .with_context(|| format!("Failed to create directory {}", hooks_dir.display()))?;
-    for (name, content) in HOOKS {
-        let path = hooks_dir.join(name);
-        if path.exists() && !force {
-            let existing = std::fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read existing {}", path.display()))?;
-            if existing == *content {
-                println!("  Up to date:      {}", path.display());
-            } else {
-                println!(
-                    "  Skipped (file differs from bundled version): {}",
-                    path.display()
-                );
-                println!("    Use --force to overwrite");
-            }
-            continue;
-        }
-        std::fs::write(&path, content)
-            .with_context(|| format!("Failed to write {}", path.display()))?;
-        println!("  Installed hook:  {}", path.display());
-    }
-
-    // Merge hook settings into .claude/settings.json
-    let settings_path = base.join("settings.json");
-    let merged = merge_hook_settings(&settings_path)?;
-    std::fs::write(&settings_path, merged)
-        .with_context(|| format!("Failed to write {}", settings_path.display()))?;
-    println!("  Updated:         {}", settings_path.display());
-
+fn setup_skills(agents: HashSet<Agent>, force: bool) -> Result<()> {
     println!();
-    println!("InboxAPI Claude Code skills and hooks installed successfully.");
+
+    let ordered = [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::OpenCode];
+    let mut summary: Vec<(Agent, usize, usize)> = Vec::new();
+
+    for &agent in &ordered {
+        if !agents.contains(&agent) {
+            continue;
+        }
+
+        println!("Installing for {}...", agent.label());
+
+        match agent {
+            Agent::Claude => {
+                let base = PathBuf::from(".claude");
+                let (installed, _up, _skip) =
+                    install_skills_to_dir(&base.join("skills"), SKILLS, force)?;
+
+                // Write hooks
+                let hooks_dir = base.join("hooks");
+                std::fs::create_dir_all(&hooks_dir).with_context(|| {
+                    format!("Failed to create directory {}", hooks_dir.display())
+                })?;
+                let mut hooks_count = 0;
+                for (name, content) in HOOKS {
+                    let path = hooks_dir.join(name);
+                    match write_if_needed(&path, content, force)? {
+                        "installed" => {
+                            println!("  Installed hook:  {}", path.display());
+                            hooks_count += 1;
+                        }
+                        "up-to-date" => {
+                            println!("  Up to date:      {}", path.display());
+                        }
+                        _ => {
+                            println!(
+                                "  Skipped (file differs from bundled version): {}",
+                                path.display()
+                            );
+                            println!("    Use --force to overwrite");
+                        }
+                    }
+                }
+
+                // Merge hook settings into .claude/settings.json
+                let settings_path = base.join("settings.json");
+                let merged = merge_hook_settings(&settings_path)?;
+                std::fs::write(&settings_path, &merged)
+                    .with_context(|| format!("Failed to write {}", settings_path.display()))?;
+                println!("  Updated:         {}", settings_path.display());
+
+                summary.push((agent, installed, hooks_count));
+            }
+            Agent::Codex => {
+                let (installed, _, _) =
+                    install_skills_to_dir(&PathBuf::from(".agents/skills"), CODEX_SKILLS, force)?;
+                summary.push((agent, installed, 0));
+            }
+            Agent::Gemini => {
+                let (installed, _, _) =
+                    install_skills_to_dir(&PathBuf::from(".gemini/skills"), GEMINI_SKILLS, force)?;
+                summary.push((agent, installed, 0));
+            }
+            Agent::OpenCode => {
+                let (installed, _, _) = install_opencode_commands(OPENCODE_COMMANDS, force)?;
+                summary.push((agent, installed, 0));
+            }
+        }
+        println!();
+    }
+
+    println!("InboxAPI skills installed:");
+    println!();
+    for (agent, _skills, hooks) in &summary {
+        let dir = match agent {
+            Agent::Claude => ".claude/skills/",
+            Agent::Codex => ".agents/skills/",
+            Agent::Gemini => ".gemini/skills/",
+            Agent::OpenCode => ".opencode/commands/",
+        };
+        let hooks_str = if *hooks > 0 {
+            format!(", {} hooks", hooks)
+        } else {
+            String::new()
+        };
+        println!(
+            "  \u{2713} {:<14} {}    (7 skills{})",
+            format!("{}:", agent.label()),
+            dir,
+            hooks_str
+        );
+    }
+    println!();
     println!("Available skills: /check-inbox, /compose, /email-search, /email-reply, /email-digest, /email-forward, /setup-inboxapi");
     Ok(())
 }
@@ -865,7 +1250,37 @@ async fn main() -> Result<()> {
         Some(Commands::Reset) => reset_credentials(),
         Some(Commands::Backup { folder }) => backup_credentials(&folder),
         Some(Commands::Restore { folder }) => restore_credentials(&folder),
-        Some(Commands::SetupSkills { force }) => setup_skills(force),
+        Some(Commands::SetupSkills {
+            force,
+            all,
+            claude,
+            codex,
+            gemini,
+            opencode,
+        }) => {
+            let agents = if all {
+                Agent::all()
+            } else if claude || codex || gemini || opencode {
+                let mut set = HashSet::new();
+                if claude {
+                    set.insert(Agent::Claude);
+                }
+                if codex {
+                    set.insert(Agent::Codex);
+                }
+                if gemini {
+                    set.insert(Agent::Gemini);
+                }
+                if opencode {
+                    set.insert(Agent::OpenCode);
+                }
+                set
+            } else {
+                let detected = detect_agents();
+                prompt_agent_selection(&detected)?
+            };
+            setup_skills(agents, force)
+        }
         Some(Commands::SendEmail { .. })
         | Some(Commands::GetEmails { .. })
         | Some(Commands::GetEmail { .. })
