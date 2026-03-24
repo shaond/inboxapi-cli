@@ -3265,7 +3265,7 @@ fn inject_initialize_instructions(
                     let display = display_name_from_account(&c.account_name);
                     instructions.push_str(&format!(
                         " Your account name is '{}' and your InboxAPI email address is '{}'.\
-                         Always use '{}' as your from_name when sending emails.\
+                         Use '{}' as your from_name when sending emails.\
                          When signing off emails, use '{}' as your name — do not sign as the AI model (e.g., Claude, Gemini).",
                         name, email, name, display
                     ));
@@ -3504,17 +3504,20 @@ fn rewrite_tools_list(body: &str, creds: Option<&Credentials>) -> String {
                 if let Some(obj) = tool.as_object_mut() {
                     if let Some(name) = obj.get("name").and_then(|n| n.as_str()).map(String::from) {
                         // Inject MCP annotations (destructiveHint / readOnlyHint)
-                        if !obj.contains_key("annotations") {
-                            if DESTRUCTIVE_TOOLS.contains(&name.as_str()) {
-                                obj.insert(
-                                    "annotations".to_string(),
-                                    json!({"destructiveHint": true}),
-                                );
-                            } else if READONLY_TOOLS.contains(&name.as_str()) {
-                                obj.insert(
-                                    "annotations".to_string(),
-                                    json!({"readOnlyHint": true}),
-                                );
+                        // Merge into existing annotations object if present
+                        let is_destructive = DESTRUCTIVE_TOOLS.contains(&name.as_str());
+                        let is_readonly = READONLY_TOOLS.contains(&name.as_str());
+                        if is_destructive || is_readonly {
+                            let annotations = obj
+                                .entry("annotations".to_string())
+                                .or_insert_with(|| json!({}));
+                            if let Some(ann_obj) = annotations.as_object_mut() {
+                                if is_destructive && !ann_obj.contains_key("destructiveHint") {
+                                    ann_obj.insert("destructiveHint".to_string(), json!(true));
+                                }
+                                if is_readonly && !ann_obj.contains_key("readOnlyHint") {
+                                    ann_obj.insert("readOnlyHint".to_string(), json!(true));
+                                }
                             }
                         }
 
@@ -6203,7 +6206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_annotations_not_overwritten_if_present() {
+    fn test_annotations_merged_into_existing() {
         let body = serde_json::to_string(&json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -6220,8 +6223,9 @@ mod tests {
         let result = rewrite_tools_list(&body, None);
         let parsed: Value = serde_json::from_str(&result).unwrap();
         let tool = &parsed["result"]["tools"][0];
-        // Should keep existing annotations, not overwrite
+        // Should keep existing annotations AND add readOnlyHint
         assert_eq!(tool["annotations"]["custom"], true);
+        assert_eq!(tool["annotations"]["readOnlyHint"], true);
     }
 
     #[test]
