@@ -58,7 +58,7 @@ Help the user reply to an email with full thread context.
    - `--reply-all` — reply to all recipients in the thread
    - `--html-body "<html>"` — send HTML-formatted reply
    - `--from-name "Name"` — override sender display name
-   - `--priority "high|normal|low"` — set email priority
+   - `--priority <high|normal|low>` — set email priority
 
 ## Notes
 
