@@ -159,6 +159,24 @@ enum Commands {
         /// Reply body (plain text)
         #[arg(long)]
         body: String,
+        /// CC recipients, comma-separated
+        #[arg(long)]
+        cc: Option<String>,
+        /// BCC recipients, comma-separated
+        #[arg(long)]
+        bcc: Option<String>,
+        /// HTML body
+        #[arg(long)]
+        html_body: Option<String>,
+        /// Sender display name
+        #[arg(long)]
+        from_name: Option<String>,
+        /// Reply to all recipients in the thread
+        #[arg(long)]
+        reply_all: bool,
+        /// Priority: low, normal, or high
+        #[arg(long)]
+        priority: Option<String>,
     },
     /// Forward an email
     ForwardEmail {
@@ -2157,11 +2175,35 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         Some(Commands::SendReply {
             ref message_id,
             ref body,
+            ref cc,
+            ref bcc,
+            ref html_body,
+            ref from_name,
+            reply_all,
+            ref priority,
         }) => {
-            let args = json!({
+            let mut args = json!({
                 "in_reply_to": message_id,
                 "body": body,
             });
+            if reply_all {
+                args["reply_all"] = json!(true);
+            }
+            if let Some(cc) = cc {
+                args["cc"] = json!(split_csv(cc));
+            }
+            if let Some(bcc) = bcc {
+                args["bcc"] = json!(split_csv(bcc));
+            }
+            if let Some(html_body) = html_body {
+                args["html_body"] = json!(html_body);
+            }
+            if let Some(from_name) = from_name {
+                args["from_name"] = json!(from_name);
+            }
+            if let Some(priority) = priority {
+                args["priority"] = json!(priority);
+            }
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "send_reply", args).await?;
             let text = extract_tool_result_text(&response)?;

@@ -44,6 +44,19 @@ Help the user reply to an email with full thread context.
 
 7. **Send**: Run: `npx -y @inboxapi/cli send-reply --message-id "<id>" --body "<reply>"`
 
+   **Preserving CC recipients in threads**: If the thread has CC'd recipients, include them with `--cc`:
+   ```
+   npx -y @inboxapi/cli send-reply --message-id "<id>" --body "<reply>" --cc "cc1@example.com,cc2@example.com"
+   ```
+
+   **Additional options**:
+   - `--cc "addr1,addr2"` — CC recipients (comma-separated)
+   - `--bcc "addr1,addr2"` — BCC recipients (comma-separated, silent copy)
+   - `--reply-all` — reply to all recipients in the thread
+   - `--html-body "<html>"` — send HTML-formatted reply
+   - `--from-name "Name"` — override sender display name
+   - `--priority "high|normal|low"` — set email priority
+
 ## Notes
 
 - All CLI commands output JSON by default — parse the JSON response to extract the relevant fields
@@ -53,3 +66,4 @@ Help the user reply to an email with full thread context.
 - ALWAYS show the thread context before composing
 - ALWAYS preview and confirm before sending
 - NEVER send without explicit user confirmation
+- When replying to threads with CC'd recipients, ALWAYS preserve them using `--cc` to avoid breaking the chain
