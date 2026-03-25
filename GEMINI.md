@@ -59,3 +59,30 @@ Users install with `npm install -g @inboxapi/cli`. npm automatically selects the
 - Do not add AI attribution to commits, code, or comments
 - Run `cargo fmt` before committing Rust changes
 - Use conventional commits (`feat:`, `fix:`, `chore:`, etc.)
+
+## Coding Standards
+
+### Rust
+- Implement `Drop` for structs owning child processes or OS resources — panics must not leak processes
+- Store `BufReader` in structs rather than re-creating per call — re-creation loses buffered data
+- Prefer iterators (`iter().take(n)`) over index loops (`for i in 0..n`) when indexing a single collection
+- Add timeouts to all blocking I/O — tests and tools must not hang indefinitely
+- Include descriptive messages in all assertions
+
+### JavaScript / Node.js
+- Pass arguments as arrays to `execFileSync` — never use string interpolation with `execSync` (shell injection risk)
+- Do not declare synchronous functions as `async`
+- Use line-based parsing (`readline.createInterface`) for child process stdout — raw `data` events are chunked arbitrarily
+- Spawn subprocesses once and reuse — do not spawn a new process per request
+- Validate user input before using it to index arrays or build commands
+- Use environment variables or constants for model identifiers — never hardcode dated model strings
+
+### MCP Protocol
+- Always send `notifications/initialized` after `initialize` and before any other requests
+
+## Pre-completion Checklist
+Before declaring work done, run in order:
+1. `cargo fmt` — format code
+2. `cargo clippy -- -D warnings` — lint with zero warnings
+3. `cargo test` — all unit tests pass
+4. `cargo build` — clean compilation

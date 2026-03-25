@@ -70,6 +70,26 @@ Cargo.toml                     — Rust dependencies
 - Do not add AI attribution to commits, code, or comments
 - Keep `src/main.rs` as a single file — this is a simple proxy, not a framework
 
+## Coding Standards
+
+### Rust
+- Always implement `Drop` for structs that own child processes or OS resources — assertion panics must not leak processes
+- Never re-create buffered readers (`BufReader`) in a loop or per-call; store them in the struct so buffered data is not lost
+- Use iterators (`iter().take(n)`) instead of index-based `for i in 0..n` loops when only indexing a single collection
+- Add timeouts to any blocking I/O (network, subprocess reads) — tests and tools must not hang indefinitely
+- Include descriptive messages in all `assert!` / `assert_eq!` macros
+
+### JavaScript / Node.js
+- Never use `execSync` / `execFileSync` with string interpolation — pass arguments as arrays to avoid shell injection
+- Do not mark synchronous functions `async` — it is misleading and wraps the return in an unnecessary Promise
+- Handle chunked `data` events from child process stdout with line-based parsing (e.g. `readline.createInterface`), not raw `JSON.parse` on each chunk
+- When communicating with a subprocess over its lifetime, spawn it once and reuse the connection — do not spawn a new process per request
+- Validate all user input (bounds checks, type checks) before using it to index arrays or build commands
+- Use environment variables or constants for model identifiers — never hardcode dated model version strings
+
+### MCP Protocol
+- After sending `initialize`, always send `notifications/initialized` before any other requests — skipping this violates the MCP handshake and may cause server rejection
+
 ## Pre-completion Checklist
 Before declaring work done, run these in order:
 1. `cargo fmt` — format code

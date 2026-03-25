@@ -1,10 +1,9 @@
-const { spawn, execSync } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const readline = require('readline');
 const Anthropic = require('@anthropic-ai/sdk');
 
-// Configuration
-const CARGO_RUN = 'cargo run --';
 const WORKTREE_DIR = '..'; // Assuming this is run from eval/
+const DEFAULT_MODEL = 'claude-sonnet-4-5-20250514';
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -13,128 +12,152 @@ const rl = readline.createInterface({
 
 const question = (query) => new Promise((resolve) => rl.question(query, resolve));
 
-async function runCommand(command) {
-    return execSync(`${CARGO_RUN} ${command}`, { cwd: WORKTREE_DIR, encoding: 'utf-8' });
+function runCommand(...args) {
+    return execFileSync('cargo', ['run', '--', ...args], { cwd: WORKTREE_DIR, encoding: 'utf-8' });
 }
 
-async function getTools() {
-    return new Promise((resolve, reject) => {
-        const proc = spawn('cargo', ['run', '--', 'proxy'], { cwd: WORKTREE_DIR });
-        let output = '';
-        
-        proc.stdout.on('data', (data) => {
-            const line = data.toString();
+class ProxyClient {
+    constructor() {
+        this._proc = null;
+        this._lineReader = null;
+        this._lineBuffer = [];
+        this._lineWaiters = [];
+        this._nextId = 1;
+    }
+
+    async start() {
+        this._proc = spawn('cargo', ['run', '--', 'proxy'], {
+            cwd: WORKTREE_DIR,
+            stdio: ['pipe', 'pipe', 'inherit']
+        });
+
+        this._lineReader = readline.createInterface({ input: this._proc.stdout });
+        this._lineReader.on('line', (line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return;
             try {
-                const json = JSON.parse(line);
-                if (json.result && json.result.tools) {
-                    proc.kill();
-                    resolve(json.result.tools);
+                const parsed = JSON.parse(trimmed);
+                if (this._lineWaiters.length > 0) {
+                    const { resolve } = this._lineWaiters.shift();
+                    resolve(parsed);
+                } else {
+                    this._lineBuffer.push(parsed);
                 }
-            } catch (e) {
-                // Ignore non-json output (like cargo build messages)
+            } catch {
+                // Ignore non-JSON output (e.g., cargo build messages)
             }
         });
 
-        proc.stdin.write(JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
+        // Initialize
+        this._send({
+            jsonrpc: '2.0',
+            id: this._nextId++,
+            method: 'initialize',
             params: {
-                protocolVersion: "2024-11-05",
+                protocolVersion: '2024-11-05',
                 capabilities: {},
-                clientInfo: { name: "eval-script", version: "1.0.0" }
-            }
-        }) + '\n');
-
-        proc.stdin.write(JSON.stringify({
-            jsonrpc: "2.0",
-            id: 2,
-            method: "tools/list"
-        }) + '\n');
-        
-        setTimeout(() => {
-            proc.kill();
-            reject(new Error('Timeout getting tools'));
-        }, 10000);
-    });
-}
-
-async function callTool(name, args) {
-    return new Promise((resolve, reject) => {
-        const proc = spawn('cargo', ['run', '--', 'proxy'], { cwd: WORKTREE_DIR });
-        let responseReceived = false;
-
-        proc.stdout.on('data', (data) => {
-            const lines = data.toString().split('\n');
-            for (const line of lines) {
-                if (!line.trim()) continue;
-                try {
-                    const json = JSON.parse(line);
-                    if (json.id === 3) {
-                        responseReceived = true;
-                        proc.kill();
-                        resolve(json.result);
-                    }
-                } catch (e) {}
+                clientInfo: { name: 'eval-script', version: '1.0.0' }
             }
         });
 
-        proc.stdin.write(JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: {
-                protocolVersion: "2024-11-05",
-                capabilities: {},
-                clientInfo: { name: "eval-script", version: "1.0.0" }
-            }
-        }) + '\n');
+        const initResponse = await this._receive(10000);
+        if (!initResponse.result) {
+            throw new Error(`Initialize failed: ${JSON.stringify(initResponse)}`);
+        }
 
-        proc.stdin.write(JSON.stringify({
-            jsonrpc: "2.0",
-            id: 3,
-            method: "tools/call",
-            params: {
-                name: name,
-                arguments: args
-            }
-        }) + '\n');
+        // Send initialized notification
+        this._send({
+            jsonrpc: '2.0',
+            method: 'notifications/initialized'
+        });
 
-        setTimeout(() => {
-            if (!responseReceived) {
-                proc.kill();
-                reject(new Error(`Timeout calling tool ${name}`));
+        return initResponse;
+    }
+
+    _send(message) {
+        this._proc.stdin.write(JSON.stringify(message) + '\n');
+    }
+
+    _receive(timeoutMs = 30000) {
+        return new Promise((resolve, reject) => {
+            if (this._lineBuffer.length > 0) {
+                resolve(this._lineBuffer.shift());
+                return;
             }
-        }, 30000);
-    });
+
+            const timer = setTimeout(() => {
+                const idx = this._lineWaiters.findIndex((w) => w.resolve === resolve);
+                if (idx !== -1) this._lineWaiters.splice(idx, 1);
+                reject(new Error(`Timeout after ${timeoutMs}ms waiting for response`));
+            }, timeoutMs);
+
+            this._lineWaiters.push({
+                resolve: (value) => {
+                    clearTimeout(timer);
+                    resolve(value);
+                }
+            });
+        });
+    }
+
+    async getTools() {
+        this._send({
+            jsonrpc: '2.0',
+            id: this._nextId++,
+            method: 'tools/list'
+        });
+        const response = await this._receive(10000);
+        return response.result.tools;
+    }
+
+    async callTool(name, args) {
+        this._send({
+            jsonrpc: '2.0',
+            id: this._nextId++,
+            method: 'tools/call',
+            params: { name, arguments: args }
+        });
+        return this._receive(30000);
+    }
+
+    close() {
+        if (this._lineReader) this._lineReader.close();
+        if (this._proc) this._proc.kill();
+    }
 }
 
 async function main() {
     console.log('--- InboxAPI Agent Evaluation ---');
-    
+
     // 1. Check Auth
     try {
-        const whoami = JSON.parse(await runCommand('whoami'));
+        const whoami = JSON.parse(runCommand('whoami'));
         console.log(`Authenticated as: ${whoami.account_name} (${whoami.email})`);
-    } catch (e) {
+    } catch {
         console.error('Error: Not authenticated. Run `cargo run -- login` first.');
         process.exit(1);
     }
 
     // 2. Get Addressbook
-    const addressbookData = JSON.parse(await runCommand('get-addressbook'));
+    const addressbookData = JSON.parse(runCommand('get-addressbook'));
     const contacts = addressbookData.addressbook;
-    
-    if (contacts.length === 0) {
+
+    if (!contacts || contacts.length === 0) {
         console.error('Error: Addressbook is empty. Cannot run evaluations.');
         process.exit(1);
     }
 
+    const maxContacts = Math.min(contacts.length, 5);
     console.log('\nRecent Contacts:');
-    contacts.slice(0, 5).forEach((c, i) => console.log(`${i + 1}. ${c.email}`));
-    
-    const choice = await question('\nSelect a contact for integration tests (1-5): ');
-    const testEmail = contacts[parseInt(choice) - 1].email;
+    contacts.slice(0, maxContacts).forEach((c, i) => console.log(`${i + 1}. ${c.email}`));
+
+    const choice = await question(`\nSelect a contact for integration tests (1-${maxContacts}): `);
+    const choiceNum = parseInt(choice, 10);
+    if (isNaN(choiceNum) || choiceNum < 1 || choiceNum > maxContacts) {
+        console.error(`Invalid selection. Enter a number between 1 and ${maxContacts}.`);
+        process.exit(1);
+    }
+    const testEmail = contacts[choiceNum - 1].email;
     console.log(`Using ${testEmail} for tests.`);
 
     // 3. Setup LLM
@@ -144,57 +167,74 @@ async function main() {
     }
 
     const anthropic = new Anthropic();
-    const tools = await getTools();
-    
-    // Map MCP tools to Anthropic tool format
-    const anthropicTools = tools.map(t => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.inputSchema
-    }));
+    const model = process.env.EVAL_MODEL || DEFAULT_MODEL;
 
-    const coreIntents = [
-        {
-            name: 'Send Email',
-            prompt: `Send a short greeting email to ${testEmail} with subject "Integration Test" and body "Hello from the eval script!"`
-        },
-        {
-            name: 'List Emails',
-            prompt: 'Get the last 3 emails from my inbox.'
-        }
-    ];
+    // 4. Start proxy
+    const proxy = new ProxyClient();
+    try {
+        await proxy.start();
+        const tools = await proxy.getTools();
 
-    for (const intent of coreIntents) {
-        console.log(`\nEvaluating intent: ${intent.name}...`);
-        
-        let messages = [{ role: 'user', content: intent.prompt }];
-        
-        const response = await anthropic.messages.create({
-            model: 'claude-3-5-sonnet-20240620',
-            max_tokens: 1024,
-            tools: anthropicTools,
-            messages: messages
-        });
+        // Map MCP tools to Anthropic tool format
+        const anthropicTools = tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            input_schema: t.inputSchema
+        }));
 
-        console.log('Claude response:', response.content.filter(c => c.type === 'text').map(c => c.text).join('\n'));
-        
-        const toolCalls = response.content.filter(c => c.type === 'tool_use');
-        if (toolCalls.length > 0) {
-            for (const toolUse of toolCalls) {
-                console.log(`Calling tool: ${toolUse.name} with args:`, toolUse.input);
-                try {
-                    const result = await callTool(toolUse.name, toolUse.input);
-                    console.log(`Tool ${toolUse.name} result received.`);
-                    // We could feed this back to Claude for a final confirmation, 
-                    // but for "intent validation", seeing the tool call is usually enough.
-                } catch (e) {
-                    console.error(`Tool call failed: ${e.message}`);
-                }
+        const coreIntents = [
+            {
+                name: 'Send Email',
+                expectedTool: 'send_email',
+                prompt: `Send a short greeting email to ${testEmail} with subject "Integration Test" and body "Hello from the eval script!"`
+            },
+            {
+                name: 'List Emails',
+                expectedTool: 'get_emails',
+                prompt: 'Get the last 3 emails from my inbox.'
             }
-            console.log(`[PASS] ${intent.name}`);
-        } else {
-            console.log(`[FAIL] ${intent.name} - No tool call generated.`);
+        ];
+
+        for (const intent of coreIntents) {
+            console.log(`\nEvaluating intent: ${intent.name}...`);
+
+            const response = await anthropic.messages.create({
+                model,
+                max_tokens: 1024,
+                tools: anthropicTools,
+                messages: [{ role: 'user', content: intent.prompt }]
+            });
+
+            const textParts = response.content.filter((c) => c.type === 'text');
+            if (textParts.length > 0) {
+                console.log('LLM response:', textParts.map((c) => c.text).join('\n'));
+            }
+
+            const toolCalls = response.content.filter((c) => c.type === 'tool_use');
+            if (toolCalls.length === 0) {
+                console.log(`[FAIL] ${intent.name} - No tool call generated.`);
+                continue;
+            }
+
+            const matchingCall = toolCalls.find((tc) => tc.name === intent.expectedTool);
+            if (!matchingCall) {
+                console.log(
+                    `[FAIL] ${intent.name} - Expected tool ${intent.expectedTool}, got: ${toolCalls.map((tc) => tc.name).join(', ')}`
+                );
+                continue;
+            }
+
+            console.log(`Calling tool: ${matchingCall.name} with args:`, matchingCall.input);
+            try {
+                await proxy.callTool(matchingCall.name, matchingCall.input);
+                console.log(`Tool ${matchingCall.name} result received.`);
+                console.log(`[PASS] ${intent.name}`);
+            } catch (e) {
+                console.error(`[FAIL] ${intent.name} - Tool call failed: ${e.message}`);
+            }
         }
+    } finally {
+        proxy.close();
     }
 
     rl.close();
