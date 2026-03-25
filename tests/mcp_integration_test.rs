@@ -40,6 +40,9 @@ impl McpTestClient {
                 .read_line(&mut line)
                 .expect("Failed to read from stdout");
             if bytes == 0 {
+                if let Ok(Some(status)) = self.child.try_wait() {
+                    panic!("Proxy process exited unexpectedly with status: {}", status);
+                }
                 if start.elapsed() > READ_TIMEOUT {
                     panic!("Timeout after {:?} waiting for MCP response", READ_TIMEOUT);
                 }

@@ -2,8 +2,10 @@ const { spawn, execFileSync } = require('child_process');
 const readline = require('readline');
 const Anthropic = require('@anthropic-ai/sdk');
 
-const WORKTREE_DIR = '..'; // Assuming this is run from eval/
-const DEFAULT_MODEL = 'claude-sonnet-4-5-20250514';
+const path = require('path');
+
+const WORKTREE_DIR = path.join(__dirname, '..');
+const DEFAULT_MODEL = 'claude-sonnet-4-5-latest';
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -226,7 +228,10 @@ async function main() {
 
             console.log(`Calling tool: ${matchingCall.name} with args:`, matchingCall.input);
             try {
-                await proxy.callTool(matchingCall.name, matchingCall.input);
+                const toolResult = await proxy.callTool(matchingCall.name, matchingCall.input);
+                if (toolResult.error || (toolResult.result && toolResult.result.isError)) {
+                    throw new Error(`Tool returned error: ${JSON.stringify(toolResult.error || toolResult.result)}`);
+                }
                 console.log(`Tool ${matchingCall.name} result received.`);
                 console.log(`[PASS] ${intent.name}`);
             } catch (e) {
