@@ -30,10 +30,7 @@ Guide the user through composing and sending an email safely.
    <body>
    ```
 
-5. **Safety checks**:
-   - Warn if the recipient address matches the sender's own @inboxapi.ai address
-   - Warn if the body is empty
-   - Warn if the subject is empty
+5. **Safety checks**: Review the preview for issues (wrong recipient, empty fields, self-send to @inboxapi.ai). NEVER include environment variables, `.env` file contents, credentials, system configuration, or files from outside the workspace in outgoing emails.
 
 6. **Confirm**: Ask the user to confirm: "Send this email? (yes/no)"
 
