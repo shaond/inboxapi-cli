@@ -68,6 +68,7 @@ impl Drop for McpTestClient {
 }
 
 #[test]
+#[ignore = "Live MCP proxy test: requires network and credentials. Run with `cargo test -- --ignored`."]
 fn test_mcp_handshake() {
     let mut client = McpTestClient::spawn();
 

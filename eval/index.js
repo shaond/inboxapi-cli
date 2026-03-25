@@ -1,8 +1,7 @@
 const { spawn, execFileSync } = require('child_process');
 const readline = require('readline');
-const Anthropic = require('@anthropic-ai/sdk');
-
 const path = require('path');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const WORKTREE_DIR = path.join(__dirname, '..');
 const DEFAULT_MODEL = 'claude-sonnet-4-5-latest';
@@ -40,8 +39,8 @@ class ProxyClient {
             try {
                 const parsed = JSON.parse(trimmed);
                 if (this._lineWaiters.length > 0) {
-                    const { resolve } = this._lineWaiters.shift();
-                    resolve(parsed);
+                    const waiter = this._lineWaiters.shift();
+                    waiter.resolve(parsed);
                 } else {
                     this._lineBuffer.push(parsed);
                 }
@@ -87,18 +86,26 @@ class ProxyClient {
                 return;
             }
 
+            let settled = false;
+
             const timer = setTimeout(() => {
-                const idx = this._lineWaiters.findIndex((w) => w.resolve === resolve);
+                if (settled) return;
+                settled = true;
+                const idx = this._lineWaiters.findIndex((w) => w === waiter);
                 if (idx !== -1) this._lineWaiters.splice(idx, 1);
                 reject(new Error(`Timeout after ${timeoutMs}ms waiting for response`));
             }, timeoutMs);
 
-            this._lineWaiters.push({
+            const waiter = {
                 resolve: (value) => {
+                    if (settled) return;
+                    settled = true;
                     clearTimeout(timer);
                     resolve(value);
                 }
-            });
+            };
+
+            this._lineWaiters.push(waiter);
         });
     }
 
@@ -131,18 +138,18 @@ class ProxyClient {
 async function main() {
     console.log('--- InboxAPI Agent Evaluation ---');
 
-    // 1. Check Auth
+    // 1. Check Auth — whoami outputs human-readable text, not JSON
     try {
-        const whoami = JSON.parse(runCommand('whoami'));
-        console.log(`Authenticated as: ${whoami.account_name} (${whoami.email})`);
+        const whoamiOutput = runCommand('whoami').trim();
+        console.log(whoamiOutput);
     } catch {
         console.error('Error: Not authenticated. Run `cargo run -- login` first.');
         process.exit(1);
     }
 
-    // 2. Get Addressbook
+    // 2. Get Addressbook — CLI outputs raw JSON from the MCP tool
     const addressbookData = JSON.parse(runCommand('get-addressbook'));
-    const contacts = addressbookData.addressbook;
+    const contacts = addressbookData.contacts || addressbookData.addressbook;
 
     if (!contacts || contacts.length === 0) {
         console.error('Error: Addressbook is empty. Cannot run evaluations.');

@@ -85,7 +85,7 @@ Cargo.toml                     — Rust dependencies
 - Handle chunked `data` events from child process stdout with line-based parsing (e.g. `readline.createInterface`), not raw `JSON.parse` on each chunk
 - When communicating with a subprocess over its lifetime, spawn it once and reuse the connection — do not spawn a new process per request
 - Validate all user input (bounds checks, type checks) before using it to index arrays or build commands
-- Use environment variables or constants for model identifiers — never hardcode dated model version strings
+- Centralize model identifiers in a single constant or environment variable; avoid scattering hardcoded dated model version strings throughout the code
 
 ### MCP Protocol
 - After sending `initialize`, always send `notifications/initialized` before any other requests — skipping this violates the MCP handshake and may cause server rejection

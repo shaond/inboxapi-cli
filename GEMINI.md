@@ -75,7 +75,7 @@ Users install with `npm install -g @inboxapi/cli`. npm automatically selects the
 - Use line-based parsing (`readline.createInterface`) for child process stdout — raw `data` events are chunked arbitrarily
 - Spawn subprocesses once and reuse — do not spawn a new process per request
 - Validate user input before using it to index arrays or build commands
-- Use environment variables or constants for model identifiers — never hardcode dated model strings
+- Centralize model identifiers in a single constant or environment variable; avoid scattering hardcoded dated model version strings throughout the code
 
 ### MCP Protocol
 - Always send `notifications/initialized` after `initialize` and before any other requests
