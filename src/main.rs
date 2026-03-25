@@ -4657,27 +4657,27 @@ mod tests {
         let tools = parsed["result"]["tools"].as_array().unwrap();
 
         // send_email, send_reply, forward_email should contain identity
-        for i in 0..3 {
-            let desc = tools[i]["description"].as_str().unwrap();
+        for tool in tools.iter().take(3) {
+            let desc = tool["description"].as_str().unwrap();
             assert!(
                 desc.contains("cool-agent"),
                 "tool {} missing name",
-                tools[i]["name"]
+                tool["name"]
             );
             assert!(
                 desc.contains("cool-agent@inboxapi.io"),
                 "tool {} missing email",
-                tools[i]["name"]
+                tool["name"]
             );
             assert!(
                 desc.contains("Cool Agent"),
                 "tool {} missing display name",
-                tools[i]["name"]
+                tool["name"]
             );
             assert!(
                 desc.contains("do not sign as the AI model"),
                 "tool {} missing signing guidance",
-                tools[i]["name"]
+                tool["name"]
             );
         }
         // get_emails should NOT be annotated

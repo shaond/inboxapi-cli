@@ -1,0 +1,14 @@
+{
+  "name": "@inboxapi/eval",
+  "version": "1.0.0",
+  "description": "LLM evaluation script for InboxAPI MCP tool usage",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "eval": "node index.js"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0"
+  }
+}
