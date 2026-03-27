@@ -1450,7 +1450,7 @@ async fn call_mcp_tool(
         return Err(anyhow!("HTTP error {}: {}", status, err_text));
     }
 
-    let response = parse_response(resp).await?;
+    let response = parse_response(resp).await?.body;
 
     // Handle token expiry with automatic refresh
     if is_token_expired_error(&response) {
@@ -1483,7 +1483,7 @@ async fn call_mcp_tool(
                         .await?;
 
                     if retry_resp.status().is_success() {
-                        return parse_response(retry_resp).await;
+                        return Ok(parse_response(retry_resp).await?.body);
                     }
                 }
                 Err(e) => {
@@ -2596,7 +2596,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                         continue;
                     }
 
-                    let response = match parse_response(resp).await {
+                    let parsed = match parse_response(resp).await {
                         Ok(r) => r,
                         Err(e) => {
                             eprintln!("Parse error: {}", e);
@@ -2612,6 +2612,14 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             continue;
                         }
                     };
+                    let proxy_retry_after = parsed.retry_after;
+                    if let Some(secs) = proxy_retry_after {
+                        eprintln!(
+                            "[inboxapi] Rate limited by server. Retry after {} seconds.",
+                            secs
+                        );
+                    }
+                    let response = parsed.body;
 
                     let mut final_response = if is_token_expired_error(&response) {
                         if let Some(current_creds) = creds.clone() {
@@ -2654,7 +2662,10 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                     }
                                     match retry_req.json(&msg).send().await {
                                         Ok(retry_resp) if retry_resp.status().is_success() => {
-                                            parse_response(retry_resp).await.unwrap_or(response)
+                                            parse_response(retry_resp)
+                                                .await
+                                                .map(|p| p.body)
+                                                .unwrap_or(response)
                                         }
                                         _ => response,
                                     }
@@ -2673,6 +2684,11 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                     } else {
                         response
                     };
+
+                    // Enrich rate limit error with Retry-After info
+                    if let Some(retry_secs) = proxy_retry_after {
+                        inject_rate_limit_warning(&mut final_response, retry_secs);
+                    }
 
                     // Inject version update notice for tools/call
                     {
@@ -2849,7 +2865,29 @@ async fn run_proxy(endpoint: String) -> Result<()> {
     Ok(())
 }
 
-async fn parse_response(resp: reqwest::Response) -> Result<Value> {
+/// Parsed HTTP response with optional rate limit metadata from headers.
+#[allow(dead_code)]
+struct ParsedResponse {
+    body: Value,
+    /// Server's X-RateLimit-Limit header (requests per minute).
+    rate_limit: Option<u32>,
+    /// Server's Retry-After header (seconds until quota resets, present on 429).
+    retry_after: Option<u64>,
+}
+
+async fn parse_response(resp: reqwest::Response) -> Result<ParsedResponse> {
+    // Extract rate limit headers before consuming the response body.
+    let rate_limit = resp
+        .headers()
+        .get("x-ratelimit-limit")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u32>().ok());
+    let retry_after = resp
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+
     let content_type = resp
         .headers()
         .get(CONTENT_TYPE)
@@ -2857,37 +2895,62 @@ async fn parse_response(resp: reqwest::Response) -> Result<Value> {
         .unwrap_or("")
         .to_string();
 
-    if content_type.contains("application/json") {
-        return resp
-            .json::<Value>()
+    let body = if content_type.contains("application/json") {
+        resp.json::<Value>()
             .await
-            .context("Failed to parse JSON response");
-    }
-
-    if content_type.contains("text/event-stream") {
+            .context("Failed to parse JSON response")?
+    } else if content_type.contains("text/event-stream") {
         use tokio_stream::StreamExt as _;
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
 
+        let mut result: Option<Value> = None;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.context("Stream error while reading SSE")?;
             buf.push_str(&String::from_utf8_lossy(&chunk));
 
             if let Some(event) = drain_sse_events(&mut buf).into_iter().next() {
-                return serde_json::from_str(&event.data)
-                    .context("Failed to parse SSE message data as JSON");
+                result = Some(
+                    serde_json::from_str(&event.data)
+                        .context("Failed to parse SSE message data as JSON")?,
+                );
+                break;
             }
         }
 
-        if let Some(event) = drain_sse_remainder(&buf) {
-            return serde_json::from_str(&event.data)
-                .context("Failed to parse SSE message data as JSON");
+        if result.is_none() {
+            if let Some(event) = drain_sse_remainder(&buf) {
+                result = Some(
+                    serde_json::from_str(&event.data)
+                        .context("Failed to parse SSE message data as JSON")?,
+                );
+            }
         }
 
-        return Err(anyhow!("No message event found in SSE stream"));
-    }
+        result.ok_or_else(|| anyhow!("No message event found in SSE stream"))?
+    } else {
+        return Err(anyhow!("Unexpected Content-Type: {}", content_type));
+    };
 
-    Err(anyhow!("Unexpected Content-Type: {}", content_type))
+    Ok(ParsedResponse {
+        body,
+        rate_limit,
+        retry_after,
+    })
+}
+
+/// Inject rate limit metadata into an MCP tool response when a 429 was returned.
+fn inject_rate_limit_warning(response: &mut Value, retry_after: u64) {
+    if let Some(error) = response
+        .get_mut("error")
+        .and_then(|e| e.get_mut("message"))
+    {
+        if let Some(msg) = error.as_str() {
+            if msg.contains("Rate limit") || msg.contains("rate limit") {
+                *error = json!(format!("{} Retry after {} seconds.", msg, retry_after));
+            }
+        }
+    }
 }
 
 fn is_token_expired_error(response: &Value) -> bool {
@@ -2954,7 +3017,7 @@ async fn refresh_access_token(
         }))
         .send()
         .await?;
-    let resp = parse_response(resp).await?;
+    let resp = parse_response(resp).await?.body;
 
     if resp
         .get("result")
@@ -3044,7 +3107,7 @@ async fn fetch_email_via_introspect(
         }))
         .send()
         .await?;
-    let resp = parse_response(resp).await?;
+    let resp = parse_response(resp).await?.body;
 
     let content = resp
         .get("result")
@@ -3867,7 +3930,7 @@ async fn create_account_and_authenticate(
         }))
         .send()
         .await?;
-    let resp = parse_response(resp).await?;
+    let resp = parse_response(resp).await?.body;
 
     let content = resp
         .get("result")
@@ -3901,7 +3964,7 @@ async fn create_account_and_authenticate(
         }))
         .send()
         .await?;
-    let resp = parse_response(resp).await?;
+    let resp = parse_response(resp).await?.body;
 
     let content = resp
         .get("result")
