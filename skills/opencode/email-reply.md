@@ -55,6 +55,8 @@ Help the user reply to an email with full thread context.
    - `--html-body "<html>"` — send HTML-formatted reply
    - `--from-name "Name"` — override sender display name
    - `--priority <high|normal|low>` — set email priority
+   - `--attachment "<path>"` — attach a local file (repeatable for multiple files)
+   - `--attachment-ref "<id>"` — attach by server-side attachment ID (repeatable)
 
 ## Notes
 

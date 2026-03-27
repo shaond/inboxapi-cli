@@ -46,6 +46,12 @@ Help the user forward an email to another recipient.
 
 7. **Send**: Run: `npx -y @inboxapi/cli forward-email --message-id "<id>" --to "<recipient>"` (add `--note "<message>"` if provided)
 
+   **Additional options** (add to the command above as needed):
+   - `--attachment "<path>"` — attach a local file (repeatable for multiple files)
+   - `--attachment-ref "<id>"` — attach by server-side attachment ID (repeatable)
+   - `--cc "addr1,addr2"` — CC recipients (comma-separated)
+   - `--from-name "Name"` — override sender display name
+
 ## Notes
 
 - All CLI commands output JSON by default — parse the JSON response to extract the relevant fields

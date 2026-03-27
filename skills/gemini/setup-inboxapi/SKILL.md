@@ -38,12 +38,14 @@ Configure InboxAPI email tools for this project.
    Email: <email> (or "not authenticated yet")
 
    Installed Skills:
-     /check-inbox  — View inbox summary
-     /compose      — Write and send emails
-     /email-search — Search emails
-     /email-reply  — Reply with thread context
-     /email-digest — Email activity digest
-     /email-forward — Forward emails
+     /check-inbox          — View inbox summary
+     /check-sent           — View sent email history
+     /compose              — Write and send emails
+     /download-attachment  — Download email attachments
+     /email-search         — Search emails
+     /email-reply          — Reply with thread context
+     /email-digest         — Email activity digest
+     /email-forward        — Forward emails
 
    Next steps:
      - Run /check-inbox to see your emails
