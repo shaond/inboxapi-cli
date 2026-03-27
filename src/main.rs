@@ -2946,7 +2946,7 @@ fn inject_rate_limit_warning(response: &mut Value, retry_after: u64) {
         .and_then(|e| e.get_mut("message"))
     {
         if let Some(msg) = error.as_str() {
-            if msg.contains("Rate limit") || msg.contains("rate limit") {
+            if msg.to_lowercase().contains("rate limit") {
                 *error = json!(format!("{} Retry after {} seconds.", msg, retry_after));
             }
         }
