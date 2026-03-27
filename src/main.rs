@@ -177,6 +177,12 @@ enum Commands {
         /// Priority: low, normal, or high
         #[arg(long)]
         priority: Option<String>,
+        /// Attach a local file (can be repeated)
+        #[arg(long = "attachment")]
+        attachments: Vec<String>,
+        /// Attach a server-side attachment by ID (can be repeated)
+        #[arg(long = "attachment-ref")]
+        attachment_refs: Vec<String>,
     },
     /// Forward an email
     ForwardEmail {
@@ -189,6 +195,18 @@ enum Commands {
         /// Optional note to include
         #[arg(long)]
         note: Option<String>,
+        /// CC recipients, comma-separated
+        #[arg(long)]
+        cc: Option<String>,
+        /// Sender display name
+        #[arg(long)]
+        from_name: Option<String>,
+        /// Attach a local file (can be repeated)
+        #[arg(long = "attachment")]
+        attachments: Vec<String>,
+        /// Attach a server-side attachment by ID (can be repeated)
+        #[arg(long = "attachment-ref")]
+        attachment_refs: Vec<String>,
     },
     /// Get the most recent email
     GetLastEmail,
@@ -1632,6 +1650,24 @@ async fn resolve_attachment_ref(
     }))
 }
 
+/// Process local file attachments and server-side attachment refs into JSON entries.
+async fn process_attachments(
+    attachments: &[String],
+    attachment_refs: &[String],
+    endpoint: &str,
+    creds: &mut Option<Credentials>,
+    http_client: &HttpClient,
+) -> Result<Vec<Value>> {
+    let mut entries: Vec<Value> = Vec::new();
+    for path in attachments {
+        entries.push(build_attachment_from_file(path)?);
+    }
+    for ref_id in attachment_refs {
+        entries.push(resolve_attachment_ref(ref_id, endpoint, creds, http_client).await?);
+    }
+    Ok(entries)
+}
+
 /// Build the arguments JSON for send_email from CLI args.
 #[allow(clippy::too_many_arguments)]
 fn build_send_email_args(
@@ -2044,20 +2080,14 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref attachments,
             ref attachment_refs,
         }) => {
-            let mut attachment_entries: Vec<Value> = Vec::new();
-
-            // Process local file attachments
-            for path in attachments {
-                let entry = build_attachment_from_file(path)?;
-                attachment_entries.push(entry);
-            }
-
-            // Process server-side attachment refs
-            for ref_id in attachment_refs {
-                let entry =
-                    resolve_attachment_ref(ref_id, &endpoint, &mut creds, &http_client).await?;
-                attachment_entries.push(entry);
-            }
+            let attachment_entries = process_attachments(
+                attachments,
+                attachment_refs,
+                &endpoint,
+                &mut creds,
+                &http_client,
+            )
+            .await?;
 
             let args = build_send_email_args(
                 to,
@@ -2181,7 +2211,18 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref from_name,
             reply_all,
             ref priority,
+            ref attachments,
+            ref attachment_refs,
         }) => {
+            let attachment_entries = process_attachments(
+                attachments,
+                attachment_refs,
+                &endpoint,
+                &mut creds,
+                &http_client,
+            )
+            .await?;
+
             let mut args = json!({
                 "in_reply_to": message_id,
                 "body": body,
@@ -2204,6 +2245,9 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             if let Some(priority) = priority {
                 args["priority"] = json!(priority);
             }
+            if !attachment_entries.is_empty() {
+                args["attachments"] = json!(attachment_entries);
+            }
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "send_reply", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -2213,13 +2257,35 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref message_id,
             ref to,
             ref note,
+            ref cc,
+            ref from_name,
+            ref attachments,
+            ref attachment_refs,
         }) => {
+            let attachment_entries = process_attachments(
+                attachments,
+                attachment_refs,
+                &endpoint,
+                &mut creds,
+                &http_client,
+            )
+            .await?;
+
             let mut args = json!({
                 "message_id": message_id,
                 "to": split_csv(to),
             });
             if let Some(note) = note {
                 args["note"] = json!(note);
+            }
+            if let Some(cc) = cc {
+                args["cc"] = json!(split_csv(cc));
+            }
+            if let Some(from_name) = from_name {
+                args["from_name"] = json!(from_name);
+            }
+            if !attachment_entries.is_empty() {
+                args["attachments"] = json!(attachment_entries);
             }
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "forward_email", args).await?;
@@ -2941,10 +3007,7 @@ async fn parse_response(resp: reqwest::Response) -> Result<ParsedResponse> {
 
 /// Inject rate limit metadata into an MCP tool response when a 429 was returned.
 fn inject_rate_limit_warning(response: &mut Value, retry_after: u64) {
-    if let Some(error) = response
-        .get_mut("error")
-        .and_then(|e| e.get_mut("message"))
-    {
+    if let Some(error) = response.get_mut("error").and_then(|e| e.get_mut("message")) {
         if let Some(msg) = error.as_str() {
             if msg.to_lowercase().contains("rate limit") {
                 *error = json!(format!("{} Retry after {} seconds.", msg, retry_after));
@@ -5976,6 +6039,57 @@ mod tests {
         assert_eq!(args["cc"], json!(["cc@y.com"]));
         assert_eq!(args["from_name"], "fwder");
         assert_eq!(args["note"], "FYI");
+        assert_eq!(args["token"], "tok");
+    }
+
+    #[test]
+    fn test_send_reply_args_with_attachments() {
+        let mut msg = make_tools_call(
+            "send_reply",
+            json!({
+                "in_reply_to": "<msg@test>",
+                "body": "See attached",
+                "attachments": [
+                    {"filename": "report.pdf", "content": "base64data", "content_type": "application/pdf"},
+                    {"filename": "photo.jpg", "content": "imgdata", "content_type": "image/jpeg"}
+                ]
+            }),
+        );
+        inject_token(&mut msg, &make_creds("tok"));
+        let args = msg["params"]["arguments"].as_object().unwrap();
+        assert_eq!(args["in_reply_to"], "<msg@test>");
+        assert_eq!(args["body"], "See attached");
+        let attachments = args["attachments"].as_array().unwrap();
+        assert_eq!(attachments.len(), 2);
+        assert_eq!(attachments[0]["filename"], "report.pdf");
+        assert_eq!(attachments[0]["content_type"], "application/pdf");
+        assert_eq!(attachments[1]["filename"], "photo.jpg");
+        assert_eq!(attachments[1]["content_type"], "image/jpeg");
+        assert_eq!(args["token"], "tok");
+    }
+
+    #[test]
+    fn test_forward_email_args_with_attachments() {
+        let mut msg = make_tools_call(
+            "forward_email",
+            json!({
+                "message_id": "<fwd@test>",
+                "to": ["x@y.com"],
+                "note": "FYI",
+                "attachments": [
+                    {"filename": "doc.pdf", "content": "pdfdata", "content_type": "application/pdf"}
+                ]
+            }),
+        );
+        inject_token(&mut msg, &make_creds("tok"));
+        let args = msg["params"]["arguments"].as_object().unwrap();
+        assert_eq!(args["message_id"], "<fwd@test>");
+        assert_eq!(args["to"], json!(["x@y.com"]));
+        assert_eq!(args["note"], "FYI");
+        let attachments = args["attachments"].as_array().unwrap();
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0]["filename"], "doc.pdf");
+        assert_eq!(attachments[0]["content_type"], "application/pdf");
         assert_eq!(args["token"], "tok");
     }
 
