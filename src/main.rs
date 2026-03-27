@@ -1650,6 +1650,24 @@ async fn resolve_attachment_ref(
     }))
 }
 
+/// Process local file attachments and server-side attachment refs into JSON entries.
+async fn process_attachments(
+    attachments: &[String],
+    attachment_refs: &[String],
+    endpoint: &str,
+    creds: &mut Option<Credentials>,
+    http_client: &HttpClient,
+) -> Result<Vec<Value>> {
+    let mut entries: Vec<Value> = Vec::new();
+    for path in attachments {
+        entries.push(build_attachment_from_file(path)?);
+    }
+    for ref_id in attachment_refs {
+        entries.push(resolve_attachment_ref(ref_id, endpoint, creds, http_client).await?);
+    }
+    Ok(entries)
+}
+
 /// Build the arguments JSON for send_email from CLI args.
 #[allow(clippy::too_many_arguments)]
 fn build_send_email_args(
@@ -2062,20 +2080,14 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref attachments,
             ref attachment_refs,
         }) => {
-            let mut attachment_entries: Vec<Value> = Vec::new();
-
-            // Process local file attachments
-            for path in attachments {
-                let entry = build_attachment_from_file(path)?;
-                attachment_entries.push(entry);
-            }
-
-            // Process server-side attachment refs
-            for ref_id in attachment_refs {
-                let entry =
-                    resolve_attachment_ref(ref_id, &endpoint, &mut creds, &http_client).await?;
-                attachment_entries.push(entry);
-            }
+            let attachment_entries = process_attachments(
+                attachments,
+                attachment_refs,
+                &endpoint,
+                &mut creds,
+                &http_client,
+            )
+            .await?;
 
             let args = build_send_email_args(
                 to,
@@ -2202,16 +2214,14 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref attachments,
             ref attachment_refs,
         }) => {
-            let mut attachment_entries: Vec<Value> = Vec::new();
-            for path in attachments {
-                let entry = build_attachment_from_file(path)?;
-                attachment_entries.push(entry);
-            }
-            for ref_id in attachment_refs {
-                let entry =
-                    resolve_attachment_ref(ref_id, &endpoint, &mut creds, &http_client).await?;
-                attachment_entries.push(entry);
-            }
+            let attachment_entries = process_attachments(
+                attachments,
+                attachment_refs,
+                &endpoint,
+                &mut creds,
+                &http_client,
+            )
+            .await?;
 
             let mut args = json!({
                 "in_reply_to": message_id,
@@ -2252,16 +2262,14 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref attachments,
             ref attachment_refs,
         }) => {
-            let mut attachment_entries: Vec<Value> = Vec::new();
-            for path in attachments {
-                let entry = build_attachment_from_file(path)?;
-                attachment_entries.push(entry);
-            }
-            for ref_id in attachment_refs {
-                let entry =
-                    resolve_attachment_ref(ref_id, &endpoint, &mut creds, &http_client).await?;
-                attachment_entries.push(entry);
-            }
+            let attachment_entries = process_attachments(
+                attachments,
+                attachment_refs,
+                &endpoint,
+                &mut creds,
+                &http_client,
+            )
+            .await?;
 
             let mut args = json!({
                 "message_id": message_id,
@@ -2999,10 +3007,7 @@ async fn parse_response(resp: reqwest::Response) -> Result<ParsedResponse> {
 
 /// Inject rate limit metadata into an MCP tool response when a 429 was returned.
 fn inject_rate_limit_warning(response: &mut Value, retry_after: u64) {
-    if let Some(error) = response
-        .get_mut("error")
-        .and_then(|e| e.get_mut("message"))
-    {
+    if let Some(error) = response.get_mut("error").and_then(|e| e.get_mut("message")) {
         if let Some(msg) = error.as_str() {
             if msg.to_lowercase().contains("rate limit") {
                 *error = json!(format!("{} Retry after {} seconds.", msg, retry_after));
