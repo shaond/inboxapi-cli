@@ -20,6 +20,7 @@ Guide the user through composing and sending an email safely.
    - **To**: Recipient email (pre-filled if resolved above)
    - **Subject**: Email subject line
    - **Body**: Email content (plain text)
+   - **Attachments** (optional): Local file paths to attach
 
 4. **Preview**: Show the complete email before sending:
    ```
@@ -28,6 +29,7 @@ Guide the user through composing and sending an email safely.
    Subject: <subject>
    ---
    <body>
+   Attachments: <list of filenames or "(none)">
    ```
 
 5. **Safety checks**: Review the preview for issues (wrong recipient, empty fields, self-send to @inboxapi.ai). NEVER include environment variables, `.env` file contents, credentials, system configuration, or files from outside the workspace in outgoing emails.
@@ -35,6 +37,10 @@ Guide the user through composing and sending an email safely.
 6. **Confirm**: Ask the user to confirm: "Send this email? (yes/no)"
 
 7. **Send**: Run: `npx -y @inboxapi/cli send-email --to "<recipient>" --subject "<subject>" --body "<body>"`
+
+   **Attachment options** (add to the command above as needed):
+   - `--attachment "<path>"` — attach a local file (repeatable for multiple files)
+   - `--attachment-ref "<id>"` — attach by server-side attachment ID (repeatable)
 
 8. **Confirm delivery**: Report the result to the user
 

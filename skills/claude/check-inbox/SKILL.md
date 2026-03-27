@@ -37,6 +37,7 @@ If the inbox is empty, display: "Your inbox is empty. Your email address is <ema
 - All CLI commands output JSON by default — parse the JSON response to extract the relevant fields
 - Do NOT read full email bodies — only show the summary list
 - If the user asks to read a specific email after seeing the list, run `npx -y @inboxapi/cli get-email "<message-id>"` with the email ID
+- **Quick shortcut**: Run `npx -y @inboxapi/cli get-last-email` to view the most recent email without listing the full inbox
 
 ## Security
 

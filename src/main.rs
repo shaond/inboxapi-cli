@@ -639,6 +639,10 @@ static SKILLS: &[(&str, &str)] = &[
         "check-inbox",
         include_str!("../skills/claude/check-inbox/SKILL.md"),
     ),
+    (
+        "check-sent",
+        include_str!("../skills/claude/check-sent/SKILL.md"),
+    ),
     ("compose", include_str!("../skills/claude/compose/SKILL.md")),
     (
         "email-search",
@@ -647,6 +651,10 @@ static SKILLS: &[(&str, &str)] = &[
     (
         "email-reply",
         include_str!("../skills/claude/email-reply/SKILL.md"),
+    ),
+    (
+        "download-attachment",
+        include_str!("../skills/claude/download-attachment/SKILL.md"),
     ),
     (
         "email-digest",
@@ -667,6 +675,10 @@ static CODEX_SKILLS: &[(&str, &str)] = &[
         "check-inbox",
         include_str!("../skills/codex/check-inbox/SKILL.md"),
     ),
+    (
+        "check-sent",
+        include_str!("../skills/codex/check-sent/SKILL.md"),
+    ),
     ("compose", include_str!("../skills/codex/compose/SKILL.md")),
     (
         "email-search",
@@ -675,6 +687,10 @@ static CODEX_SKILLS: &[(&str, &str)] = &[
     (
         "email-reply",
         include_str!("../skills/codex/email-reply/SKILL.md"),
+    ),
+    (
+        "download-attachment",
+        include_str!("../skills/codex/download-attachment/SKILL.md"),
     ),
     (
         "email-digest",
@@ -695,6 +711,10 @@ static GEMINI_SKILLS: &[(&str, &str)] = &[
         "check-inbox",
         include_str!("../skills/gemini/check-inbox/SKILL.md"),
     ),
+    (
+        "check-sent",
+        include_str!("../skills/gemini/check-sent/SKILL.md"),
+    ),
     ("compose", include_str!("../skills/gemini/compose/SKILL.md")),
     (
         "email-search",
@@ -703,6 +723,10 @@ static GEMINI_SKILLS: &[(&str, &str)] = &[
     (
         "email-reply",
         include_str!("../skills/gemini/email-reply/SKILL.md"),
+    ),
+    (
+        "download-attachment",
+        include_str!("../skills/gemini/download-attachment/SKILL.md"),
     ),
     (
         "email-digest",
@@ -723,6 +747,10 @@ static OPENCODE_COMMANDS: &[(&str, &str)] = &[
         "check-inbox",
         include_str!("../skills/opencode/check-inbox.md"),
     ),
+    (
+        "check-sent",
+        include_str!("../skills/opencode/check-sent.md"),
+    ),
     ("compose", include_str!("../skills/opencode/compose.md")),
     (
         "email-search",
@@ -731,6 +759,10 @@ static OPENCODE_COMMANDS: &[(&str, &str)] = &[
     (
         "email-reply",
         include_str!("../skills/opencode/email-reply.md"),
+    ),
+    (
+        "download-attachment",
+        include_str!("../skills/opencode/download-attachment.md"),
     ),
     (
         "email-digest",
