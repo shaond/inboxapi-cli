@@ -177,6 +177,12 @@ enum Commands {
         /// Priority: low, normal, or high
         #[arg(long)]
         priority: Option<String>,
+        /// Attach a local file (can be repeated)
+        #[arg(long = "attachment")]
+        attachments: Vec<String>,
+        /// Attach a server-side attachment by ID (can be repeated)
+        #[arg(long = "attachment-ref")]
+        attachment_refs: Vec<String>,
     },
     /// Forward an email
     ForwardEmail {
@@ -189,6 +195,18 @@ enum Commands {
         /// Optional note to include
         #[arg(long)]
         note: Option<String>,
+        /// CC recipients, comma-separated
+        #[arg(long)]
+        cc: Option<String>,
+        /// Sender display name
+        #[arg(long)]
+        from_name: Option<String>,
+        /// Attach a local file (can be repeated)
+        #[arg(long = "attachment")]
+        attachments: Vec<String>,
+        /// Attach a server-side attachment by ID (can be repeated)
+        #[arg(long = "attachment-ref")]
+        attachment_refs: Vec<String>,
     },
     /// Get the most recent email
     GetLastEmail,
@@ -2181,7 +2199,20 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref from_name,
             reply_all,
             ref priority,
+            ref attachments,
+            ref attachment_refs,
         }) => {
+            let mut attachment_entries: Vec<Value> = Vec::new();
+            for path in attachments {
+                let entry = build_attachment_from_file(path)?;
+                attachment_entries.push(entry);
+            }
+            for ref_id in attachment_refs {
+                let entry =
+                    resolve_attachment_ref(ref_id, &endpoint, &mut creds, &http_client).await?;
+                attachment_entries.push(entry);
+            }
+
             let mut args = json!({
                 "in_reply_to": message_id,
                 "body": body,
@@ -2204,6 +2235,9 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             if let Some(priority) = priority {
                 args["priority"] = json!(priority);
             }
+            if !attachment_entries.is_empty() {
+                args["attachments"] = json!(attachment_entries);
+            }
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "send_reply", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -2213,13 +2247,37 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref message_id,
             ref to,
             ref note,
+            ref cc,
+            ref from_name,
+            ref attachments,
+            ref attachment_refs,
         }) => {
+            let mut attachment_entries: Vec<Value> = Vec::new();
+            for path in attachments {
+                let entry = build_attachment_from_file(path)?;
+                attachment_entries.push(entry);
+            }
+            for ref_id in attachment_refs {
+                let entry =
+                    resolve_attachment_ref(ref_id, &endpoint, &mut creds, &http_client).await?;
+                attachment_entries.push(entry);
+            }
+
             let mut args = json!({
                 "message_id": message_id,
                 "to": split_csv(to),
             });
             if let Some(note) = note {
                 args["note"] = json!(note);
+            }
+            if let Some(cc) = cc {
+                args["cc"] = json!(split_csv(cc));
+            }
+            if let Some(from_name) = from_name {
+                args["from_name"] = json!(from_name);
+            }
+            if !attachment_entries.is_empty() {
+                args["attachments"] = json!(attachment_entries);
             }
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "forward_email", args).await?;
