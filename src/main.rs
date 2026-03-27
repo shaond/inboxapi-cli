@@ -6042,6 +6042,57 @@ mod tests {
         assert_eq!(args["token"], "tok");
     }
 
+    #[test]
+    fn test_send_reply_args_with_attachments() {
+        let mut msg = make_tools_call(
+            "send_reply",
+            json!({
+                "in_reply_to": "<msg@test>",
+                "body": "See attached",
+                "attachments": [
+                    {"filename": "report.pdf", "content": "base64data", "content_type": "application/pdf"},
+                    {"filename": "photo.jpg", "content": "imgdata", "content_type": "image/jpeg"}
+                ]
+            }),
+        );
+        inject_token(&mut msg, &make_creds("tok"));
+        let args = msg["params"]["arguments"].as_object().unwrap();
+        assert_eq!(args["in_reply_to"], "<msg@test>");
+        assert_eq!(args["body"], "See attached");
+        let attachments = args["attachments"].as_array().unwrap();
+        assert_eq!(attachments.len(), 2);
+        assert_eq!(attachments[0]["filename"], "report.pdf");
+        assert_eq!(attachments[0]["content_type"], "application/pdf");
+        assert_eq!(attachments[1]["filename"], "photo.jpg");
+        assert_eq!(attachments[1]["content_type"], "image/jpeg");
+        assert_eq!(args["token"], "tok");
+    }
+
+    #[test]
+    fn test_forward_email_args_with_attachments() {
+        let mut msg = make_tools_call(
+            "forward_email",
+            json!({
+                "message_id": "<fwd@test>",
+                "to": ["x@y.com"],
+                "note": "FYI",
+                "attachments": [
+                    {"filename": "doc.pdf", "content": "pdfdata", "content_type": "application/pdf"}
+                ]
+            }),
+        );
+        inject_token(&mut msg, &make_creds("tok"));
+        let args = msg["params"]["arguments"].as_object().unwrap();
+        assert_eq!(args["message_id"], "<fwd@test>");
+        assert_eq!(args["to"], json!(["x@y.com"]));
+        assert_eq!(args["note"], "FYI");
+        let attachments = args["attachments"].as_array().unwrap();
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0]["filename"], "doc.pdf");
+        assert_eq!(attachments[0]["content_type"], "application/pdf");
+        assert_eq!(args["token"], "tok");
+    }
+
     // --- edge cases ---
 
     #[test]
