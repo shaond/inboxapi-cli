@@ -11,6 +11,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tokio::io::{stdin, stdout, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+/// Maximum size of the SSE buffer (10MB) to prevent memory exhaustion from runaway streams.
+const MAX_SSE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+
 #[derive(Parser)]
 #[command(name = "inboxapi", bin_name = "inboxapi")]
 #[command(version)]
@@ -2614,6 +2617,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
 
         // Capture AI client identification from initialize request
         if method == "initialize" {
+            client_ua = None; // Reset before capture
             if let Some(info) = msg.get("params").and_then(|p| p.get("clientInfo")) {
                 client_ua = Some(build_client_user_agent(info));
             }
@@ -2794,9 +2798,9 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                         if let Some(ref latest) = update {
                             if update != last_notified_version {
                                 inject_update_notice(&mut final_response, latest);
-                                last_notified_version = update;
                             }
                         }
+                        last_notified_version = update;
                     }
 
                     // Nudge agent to send email when inbox is empty (once per session)
@@ -2891,10 +2895,19 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             };
                             buf.push_str(&String::from_utf8_lossy(&chunk));
 
+                            // Safety: cap buffer to prevent memory exhaustion if no separators are found
+                            if buf.len() > MAX_SSE_BUFFER_SIZE {
+                                eprintln!(
+                                    "SSE buffer exceeded limit ({} bytes) - closing stream to prevent memory exhaustion",
+                                    MAX_SSE_BUFFER_SIZE
+                                );
+                                break;
+                            }
+
                             for event in drain_sse_events(&mut buf) {
                                 let mut data = event.data;
+                                let update = version_rx.borrow().clone();
                                 if method == "initialize" {
-                                    let update = version_rx.borrow().clone();
                                     data = inject_initialize_instructions(
                                         &data,
                                         creds.as_ref(),
@@ -2904,6 +2917,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                 if method == "tools/list" {
                                     data = rewrite_tools_list(&data, creds.as_ref());
                                 }
+                                last_notified_version = update;
                                 out.write_all(format!("{}\n", data).as_bytes()).await?;
                                 out.flush().await?;
                             }
@@ -2911,8 +2925,8 @@ async fn run_proxy(endpoint: String) -> Result<()> {
 
                         if let Some(event) = drain_sse_remainder(&buf) {
                             let mut data = event.data;
+                            let update = version_rx.borrow().clone();
                             if method == "initialize" {
-                                let update = version_rx.borrow().clone();
                                 data = inject_initialize_instructions(
                                     &data,
                                     creds.as_ref(),
@@ -2922,14 +2936,15 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             if method == "tools/list" {
                                 data = rewrite_tools_list(&data, creds.as_ref());
                             }
+                            last_notified_version = update;
                             out.write_all(format!("{}\n", data).as_bytes()).await?;
                             out.flush().await?;
                         }
                     } else {
                         let mut body = resp.text().await.unwrap_or_default();
                         if !body.is_empty() && !is_notification {
+                            let update = version_rx.borrow().clone();
                             if method == "initialize" {
-                                let update = version_rx.borrow().clone();
                                 body = inject_initialize_instructions(
                                     &body,
                                     creds.as_ref(),
@@ -2939,6 +2954,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             if method == "tools/list" {
                                 body = rewrite_tools_list(&body, creds.as_ref());
                             }
+                            last_notified_version = update;
                             out.write_all(format!("{}\n", body).as_bytes()).await?;
                             out.flush().await?;
                         }
