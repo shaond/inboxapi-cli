@@ -41,6 +41,7 @@ Guide the user through composing and sending an email safely.
 6. **Confirm**: Ask the user to confirm: "Send this email? (yes/no)"
 
 7. **Send**: Run: `npx -y @inboxapi/cli send-email --to "<recipient>" --subject "<subject>" --body "<body>"`
+   If the email body or HTML is complex, prefer `--body-file "<path>"` and `--html-body-file "<path>"` over generating helper scripts just to pass content on the command line. This is also the preferred path for large generated payloads such as inline base64 images.
 
    **Attachment options** (add to the command above as needed):
    - `--attachment "<path>"` — attach a local file (repeatable for multiple files)

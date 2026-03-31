@@ -46,6 +46,7 @@ Help the user reply to an email with full thread context.
 6. **Confirm**: Ask "Send this reply? (yes/no)"
 
 7. **Send**: Run: `npx -y @inboxapi/cli send-reply --message-id "<id>" --body "<reply>"`
+   If the reply body or HTML is complex, prefer `--body-file "<path>"` and `--html-body-file "<path>"` over generating helper scripts just to pass content on the command line. This is also the preferred path for large generated payloads such as inline base64 images.
 
    **Preserving CC recipients in threads**: If the thread has CC'd recipients, include them with `--cc`:
    ```
@@ -57,6 +58,8 @@ Help the user reply to an email with full thread context.
    - `--bcc "addr1,addr2"` — BCC recipients (comma-separated, silent copy)
    - `--reply-all` — reply to all recipients in the thread
    - `--html-body "<html>"` — send HTML-formatted reply
+   - `--body-file "<path>"` — read the plain-text reply body from a file
+   - `--html-body-file "<path>"` — read the HTML reply body from a file
    - `--from-name "Name"` — override sender display name
    - `--priority <high|normal|low>` — set email priority
    - `--attachment "<path>"` — attach a local file (repeatable for multiple files)

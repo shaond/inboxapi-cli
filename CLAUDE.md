@@ -13,11 +13,12 @@ Rust-based STDIO proxy that bridges JSON-RPC (MCP protocol) over STDIO to the re
 - `cargo run -- backup <folder>` — back up credentials to a folder
 - `cargo run -- restore <folder>` — restore credentials from a backup folder
 - `cargo run -- send-email --to user@example.com --subject "Hi" --body "Hello"` — send an email
+- `cargo run -- send-email --to user@example.com --subject "Newsletter" --body-file ./body.txt --html-body-file ./newsletter.html` — send a file-backed text + HTML email
 - `cargo run -- get-emails --limit 5` — list inbox emails
 - `cargo run -- get-email "<message-id>"` — get a single email
 - `cargo run -- search-emails --subject "keyword"` — search emails
 - `cargo run -- get-attachment <id> --output ./file.pdf` — download an attachment
-- `cargo run -- send-reply --message-id "<id>" --body "Reply"` — reply to an email (optional: `--cc`, `--bcc`, `--reply-all`, `--html-body`, `--from-name`, `--priority`)
+- `cargo run -- send-reply --message-id "<id>" --body "Reply"` — reply to an email (optional: `--body-file`, `--cc`, `--bcc`, `--reply-all`, `--html-body`, `--html-body-file`, `--from-name`, `--priority`)
 - `cargo run -- forward-email --message-id "<id>" --to user@example.com` — forward an email
 - `cargo run -- get-last-email` — get the most recent email
 - `cargo run -- get-email-count` — get inbox email count (optional `--since`)
@@ -33,6 +34,8 @@ Rust-based STDIO proxy that bridges JSON-RPC (MCP protocol) over STDIO to the re
 - `cargo run -- enable-encryption` — enable email encryption
 - `cargo run -- reset-encryption` — reset email encryption
 - `cargo run -- rotate-encryption --old-secret "x" --new-secret "y"` — rotate encryption secret
+
+For complex HTML, templates, or large generated content, prefer `--body-file` and `--html-body-file`. File-backed bodies are validated as UTF-8 text, normalized to `\n`, and capped at 20 MiB.
 - `cargo run -- setup-skills` — install skills for detected AI agents (interactive)
 - `cargo run -- setup-skills --all` — install skills for all agents (Claude, Codex, Gemini, OpenCode)
 - `cargo run -- setup-skills --claude --codex` — install for specific agents
