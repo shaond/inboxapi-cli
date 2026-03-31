@@ -2562,11 +2562,11 @@ async fn run_proxy(endpoint: String) -> Result<()> {
 
     // Start background version check
     let (version_tx, version_rx) = tokio::sync::watch::channel(None);
-    {
+    let version_task = {
         let client = http_client.clone();
         let current = env!("CARGO_PKG_VERSION").to_string();
-        tokio::spawn(version_check_loop(client, current, version_tx));
-    }
+        tokio::spawn(version_check_loop(client, current, version_tx))
+    };
     let mut last_notified_version: Option<String> = None;
     let mut empty_inbox_nudge_sent = false;
 
@@ -2724,10 +2724,9 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                     let response = parsed.body;
 
                     let mut final_response = if is_token_expired_error(&response) {
-                        if let Some(current_creds) = creds.clone() {
+                        if let Some(ref current_creds) = creds {
                             eprintln!("[inboxapi] Token expired. Attempting refresh...");
-                            match reauth_with_fallback(&current_creds, &endpoint, &http_client)
-                                .await
+                            match reauth_with_fallback(current_creds, &endpoint, &http_client).await
                             {
                                 Ok(new_creds) => {
                                     // Overwrite token and encryption_secret for retry
@@ -2739,14 +2738,14 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                     {
                                         args.insert(
                                             "token".to_string(),
-                                            json!(new_creds.access_token.clone()),
+                                            json!(&new_creds.access_token),
                                         );
                                         // Refresh encryption_secret from new credentials;
                                         // if absent (e.g. after account recreation), remove stale value
                                         if let Some(ref secret) = new_creds.encryption_secret {
                                             args.insert(
                                                 "encryption_secret".to_string(),
-                                                json!(secret.clone()),
+                                                json!(secret),
                                             );
                                         } else {
                                             args.remove("encryption_secret");
@@ -2794,13 +2793,14 @@ async fn run_proxy(endpoint: String) -> Result<()> {
 
                     // Inject version update notice for tools/call
                     {
-                        let update = version_rx.borrow().clone();
-                        if let Some(ref latest) = update {
-                            if update != last_notified_version {
+                        let update_ref = version_rx.borrow();
+                        if let Some(ref latest) = *update_ref {
+                            if *update_ref != last_notified_version {
                                 inject_update_notice(&mut final_response, latest);
                             }
                         }
-                        last_notified_version = update;
+                        last_notified_version = update_ref.clone();
+                        drop(update_ref);
                     }
 
                     // Nudge agent to send email when inbox is empty (once per session)
@@ -2906,18 +2906,19 @@ async fn run_proxy(endpoint: String) -> Result<()> {
 
                             for event in drain_sse_events(&mut buf) {
                                 let mut data = event.data;
-                                let update = version_rx.borrow().clone();
+                                let update_ref = version_rx.borrow();
                                 if method == "initialize" {
                                     data = inject_initialize_instructions(
                                         &data,
                                         creds.as_ref(),
-                                        update.as_deref(),
+                                        update_ref.as_deref(),
                                     );
                                 }
                                 if method == "tools/list" {
                                     data = rewrite_tools_list(&data, creds.as_ref());
                                 }
-                                last_notified_version = update;
+                                last_notified_version = update_ref.clone();
+                                drop(update_ref);
                                 out.write_all(format!("{}\n", data).as_bytes()).await?;
                                 out.flush().await?;
                             }
@@ -2925,36 +2926,38 @@ async fn run_proxy(endpoint: String) -> Result<()> {
 
                         if let Some(event) = drain_sse_remainder(&buf) {
                             let mut data = event.data;
-                            let update = version_rx.borrow().clone();
+                            let update_ref = version_rx.borrow();
                             if method == "initialize" {
                                 data = inject_initialize_instructions(
                                     &data,
                                     creds.as_ref(),
-                                    update.as_deref(),
+                                    update_ref.as_deref(),
                                 );
                             }
                             if method == "tools/list" {
                                 data = rewrite_tools_list(&data, creds.as_ref());
                             }
-                            last_notified_version = update;
+                            last_notified_version = update_ref.clone();
+                            drop(update_ref);
                             out.write_all(format!("{}\n", data).as_bytes()).await?;
                             out.flush().await?;
                         }
                     } else {
                         let mut body = resp.text().await.unwrap_or_default();
                         if !body.is_empty() && !is_notification {
-                            let update = version_rx.borrow().clone();
+                            let update_ref = version_rx.borrow();
                             if method == "initialize" {
                                 body = inject_initialize_instructions(
                                     &body,
                                     creds.as_ref(),
-                                    update.as_deref(),
+                                    update_ref.as_deref(),
                                 );
                             }
                             if method == "tools/list" {
                                 body = rewrite_tools_list(&body, creds.as_ref());
                             }
-                            last_notified_version = update;
+                            last_notified_version = update_ref.clone();
+                            drop(update_ref);
                             out.write_all(format!("{}\n", body).as_bytes()).await?;
                             out.flush().await?;
                         }
@@ -2976,6 +2979,7 @@ async fn run_proxy(endpoint: String) -> Result<()> {
         }
     }
 
+    version_task.abort();
     Ok(())
 }
 
