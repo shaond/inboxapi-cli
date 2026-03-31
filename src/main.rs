@@ -1391,6 +1391,15 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Guard that aborts a spawned task when dropped, ensuring cleanup on all exit paths.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 struct SseEvent {
     _event_type: String,
     data: String,
@@ -2560,12 +2569,14 @@ async fn run_proxy(endpoint: String) -> Result<()> {
         }
     }
 
-    // Start background version check
+    // Start background version check (AbortOnDrop ensures cleanup on all exit paths)
     let (version_tx, version_rx) = tokio::sync::watch::channel(None);
-    let version_task = {
+    let _version_guard = {
         let client = http_client.clone();
         let current = env!("CARGO_PKG_VERSION").to_string();
-        tokio::spawn(version_check_loop(client, current, version_tx))
+        AbortOnDrop(tokio::spawn(version_check_loop(
+            client, current, version_tx,
+        )))
     };
     let mut last_notified_version: Option<String> = None;
     let mut empty_inbox_nudge_sent = false;
@@ -2794,12 +2805,12 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                     // Inject version update notice for tools/call
                     {
                         let update_ref = version_rx.borrow();
-                        if let Some(ref latest) = *update_ref {
-                            if *update_ref != last_notified_version {
+                        if *update_ref != last_notified_version {
+                            if let Some(ref latest) = *update_ref {
                                 inject_update_notice(&mut final_response, latest);
                             }
+                            last_notified_version = update_ref.clone();
                         }
-                        last_notified_version = update_ref.clone();
                         drop(update_ref);
                     }
 
@@ -2917,7 +2928,9 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                                 if method == "tools/list" {
                                     data = rewrite_tools_list(&data, creds.as_ref());
                                 }
-                                last_notified_version = update_ref.clone();
+                                if *update_ref != last_notified_version {
+                                    last_notified_version = update_ref.clone();
+                                }
                                 drop(update_ref);
                                 out.write_all(format!("{}\n", data).as_bytes()).await?;
                                 out.flush().await?;
@@ -2937,7 +2950,9 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             if method == "tools/list" {
                                 data = rewrite_tools_list(&data, creds.as_ref());
                             }
-                            last_notified_version = update_ref.clone();
+                            if *update_ref != last_notified_version {
+                                last_notified_version = update_ref.clone();
+                            }
                             drop(update_ref);
                             out.write_all(format!("{}\n", data).as_bytes()).await?;
                             out.flush().await?;
@@ -2956,7 +2971,9 @@ async fn run_proxy(endpoint: String) -> Result<()> {
                             if method == "tools/list" {
                                 body = rewrite_tools_list(&body, creds.as_ref());
                             }
-                            last_notified_version = update_ref.clone();
+                            if *update_ref != last_notified_version {
+                                last_notified_version = update_ref.clone();
+                            }
                             drop(update_ref);
                             out.write_all(format!("{}\n", body).as_bytes()).await?;
                             out.flush().await?;
@@ -2979,7 +2996,6 @@ async fn run_proxy(endpoint: String) -> Result<()> {
         }
     }
 
-    version_task.abort();
     Ok(())
 }
 
