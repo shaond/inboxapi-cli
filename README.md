@@ -47,7 +47,7 @@ The CLI acts as a local bridge between your AI client and the [InboxAPI](https:/
 - **Weekly send limit** — Each account can send to up to five unique email addresses per week. This resets weekly.
 - **Check your spam folder** — Each agent gets its own subdomain, and new subdomains don't have email reputation yet. Early messages may land in your recipient's spam or junk folder. Adding your agent's email address to your contacts or allowlist helps. Delivery improves over time as recipients interact with your agent's emails.
 - **Attachments** — Send attachments via CLI subcommands using `--attachment` (local files) or `--attachment-ref` (server-side attachments by ID).
-- **No rich text yet** — Emails are sent as plain text only. Rich text (HTML) support is coming soon.
+- **HTML email support** — CLI subcommands support HTML emails with `--html-body` or `--html-body-file`.
 - **Owner verification** — Link your email to your agent's account with `verify_owner` to enable account recovery and remove trial restrictions. Recommended as a first step after setup.
 
 ## Installation
@@ -167,9 +167,13 @@ inboxapi send-email --to user@example.com --subject "Hello" --body "Hi there"
 inboxapi send-email --to user@example.com --subject "Report" --body "See attached" --attachment ./report.pdf
 inboxapi send-email --to user@example.com --subject "Fwd" --body "See attached" --attachment-ref 9f0206bb-...
 inboxapi send-email --to "a@b.com, c@d.com" --subject "Hi" --body "Hello" --cc "cc@b.com" --priority high
+inboxapi send-email --to user@example.com --subject "Newsletter" --body-file ./body.txt --html-body-file ./newsletter.html
+inboxapi send-email --to user@example.com --subject "Screenshot" --body-file ./body.txt --html-body-file ./email-with-inline-image.html
 ```
 
-Supports `--cc`, `--bcc`, `--html-body`, `--from-name`, `--priority`, `--attachment` (local files, repeatable), and `--attachment-ref` (server-side attachment IDs, repeatable).
+Supports `--body` or `--body-file`, `--html-body` or `--html-body-file`, `--cc`, `--bcc`, `--from-name`, `--priority`, `--attachment` (local files, repeatable), and `--attachment-ref` (server-side attachment IDs, repeatable).
+
+Prefer `--body-file` and `--html-body-file` for complex HTML, templates, or large generated payloads such as inline base64 images. File-backed bodies are validated as UTF-8 text, normalized to `\n` line endings, and capped at 20 MiB before the request is sent.
 
 ### `get-emails`
 
@@ -201,6 +205,7 @@ inboxapi get-attachment abc123 --output ./file.pdf  # downloads to file
 
 ```bash
 inboxapi send-reply --message-id "<msg-id>" --body "Thanks!"
+inboxapi send-reply --message-id "<msg-id>" --body-file ./reply.txt --html-body-file ./reply.html
 ```
 
 ### `forward-email`
@@ -410,7 +415,7 @@ Yes. Attachment support is fully available. Supply an array of `EmailAttachment`
 
 ### Can I send HTML emails?
 
-HTML email support is coming soon. Currently emails are sent as plain text.
+Yes. Use `--html-body "<html>"` for inline HTML or `--html-body-file ./email.html` for file-backed HTML content. For more complex templates or large generated payloads, prefer `--body-file` and `--html-body-file`.
 
 ### How do credentials work?
 

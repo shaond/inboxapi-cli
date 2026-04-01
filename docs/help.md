@@ -18,10 +18,13 @@ Agents with shell access can also use CLI subcommands directly — no MCP or JSO
 
 ```
 inboxapi send-email --to user@example.com --subject "Hello" --body "Hi there"
+inboxapi send-email --to user@example.com --subject "Newsletter" --body-file ./body.txt --html-body-file ./newsletter.html
 inboxapi get-emails --limit 5 --human
 inboxapi search-emails --subject "invoice"
 inboxapi help
 ```
+
+Use `--body-file` and `--html-body-file` for complex HTML, templates, or large generated content. File-backed bodies are normalized to `\n` line endings and capped at 20 MiB.
 
 Run `inboxapi help` for the full list of CLI commands and examples.
 

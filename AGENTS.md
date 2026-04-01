@@ -19,15 +19,19 @@ cargo run -- restore <folder>  # Restore credentials from backup
 cargo run -- send-email --to user@example.com --subject "Hi" --body "Hello"
 cargo run -- send-email --to user@example.com --subject "Report" --body "Attached" --attachment ./report.pdf
 cargo run -- send-email --to user@example.com --subject "Fwd" --body "See attached" --attachment-ref UUID
+cargo run -- send-email --to user@example.com --subject "Newsletter" --body-file ./body.txt --html-body-file ./newsletter.html
 cargo run -- get-emails --limit 5
 cargo run -- get-emails --limit 5 --human
 cargo run -- get-email "<message-id>"
 cargo run -- search-emails --subject "invoice"
 cargo run -- get-attachment abc123 --output ./file.pdf
 cargo run -- send-reply --message-id "<id>" --body "Thanks!"
+cargo run -- send-reply --message-id "<id>" --body-file ./reply.txt --html-body-file ./reply.html
 cargo run -- forward-email --message-id "<id>" --to recipient@example.com
 cargo run -- help
 ```
+
+Prefer `--body-file` and `--html-body-file` for complex HTML, templates, or large generated content. The CLI validates file-backed bodies as UTF-8 text, normalizes line endings to `\n`, and caps them at 20 MiB.
 
 ## Architecture
 

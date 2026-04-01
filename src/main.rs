@@ -8,11 +8,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tokio::io::{stdin, stdout, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// Maximum size of the SSE buffer (10MB) to prevent memory exhaustion from runaway streams.
 const MAX_SSE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+/// Maximum size of a body/html body file read from disk (20MiB).
+const MAX_BODY_FILE_BYTES: u64 = 20 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(name = "inboxapi", bin_name = "inboxapi")]
@@ -90,8 +93,19 @@ enum Commands {
         #[arg(long)]
         subject: String,
         /// Email body (plain text)
-        #[arg(long)]
-        body: String,
+        #[arg(
+            long,
+            required_unless_present = "body_file",
+            conflicts_with = "body_file"
+        )]
+        body: Option<String>,
+        /// Read the plain-text body from a local file
+        #[arg(
+            long = "body-file",
+            required_unless_present = "body",
+            conflicts_with = "body"
+        )]
+        body_file: Option<PathBuf>,
         /// CC recipients, comma-separated
         #[arg(long)]
         cc: Option<String>,
@@ -99,8 +113,11 @@ enum Commands {
         #[arg(long)]
         bcc: Option<String>,
         /// HTML body
-        #[arg(long)]
+        #[arg(long, conflicts_with = "html_body_file")]
         html_body: Option<String>,
+        /// Read the HTML body from a local file
+        #[arg(long = "html-body-file", conflicts_with = "html_body")]
+        html_body_file: Option<PathBuf>,
         /// Sender display name
         #[arg(long)]
         from_name: Option<String>,
@@ -160,8 +177,19 @@ enum Commands {
         #[arg(long)]
         message_id: String,
         /// Reply body (plain text)
-        #[arg(long)]
-        body: String,
+        #[arg(
+            long,
+            required_unless_present = "body_file",
+            conflicts_with = "body_file"
+        )]
+        body: Option<String>,
+        /// Read the plain-text reply body from a local file
+        #[arg(
+            long = "body-file",
+            required_unless_present = "body",
+            conflicts_with = "body"
+        )]
+        body_file: Option<PathBuf>,
         /// CC recipients, comma-separated
         #[arg(long)]
         cc: Option<String>,
@@ -169,8 +197,11 @@ enum Commands {
         #[arg(long)]
         bcc: Option<String>,
         /// HTML body
-        #[arg(long)]
+        #[arg(long, conflicts_with = "html_body_file")]
         html_body: Option<String>,
+        /// Read the HTML body from a local file
+        #[arg(long = "html-body-file", conflicts_with = "html_body")]
+        html_body_file: Option<PathBuf>,
         /// Sender display name
         #[arg(long)]
         from_name: Option<String>,
@@ -1751,6 +1782,81 @@ fn build_send_email_args(
     args
 }
 
+fn resolve_body_input(
+    inline: Option<&str>,
+    file: Option<&Path>,
+    inline_flag: &str,
+    file_flag: &str,
+) -> Result<Option<String>> {
+    match (inline, file) {
+        (Some(_), Some(_)) => Err(anyhow!("Use only one of {} or {}", inline_flag, file_flag)),
+        (Some(value), None) => Ok(Some(value.to_string())),
+        (None, Some(path)) => read_body_file(path, file_flag).map(Some),
+        (None, None) => Ok(None),
+    }
+}
+
+fn read_body_file(path: &Path, file_flag: &str) -> Result<String> {
+    let metadata = std::fs::metadata(path).with_context(|| {
+        format!(
+            "Failed to read metadata for {} {}",
+            file_flag,
+            path.display()
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(anyhow!(
+            "{} path must resolve to a regular file: {}",
+            file_flag,
+            path.display()
+        ));
+    }
+    if metadata.len() > MAX_BODY_FILE_BYTES {
+        return Err(anyhow!(
+            "{} exceeds {} bytes: {}",
+            file_flag,
+            MAX_BODY_FILE_BYTES,
+            path.display()
+        ));
+    }
+
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open {} {}", file_flag, path.display()))?;
+    let mut bytes = Vec::with_capacity((metadata.len().min(MAX_BODY_FILE_BYTES)) as usize);
+    file.take(MAX_BODY_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("Failed to read {} {}", file_flag, path.display()))?;
+    if bytes.len() as u64 > MAX_BODY_FILE_BYTES {
+        return Err(anyhow!(
+            "{} exceeds {} bytes: {}",
+            file_flag,
+            MAX_BODY_FILE_BYTES,
+            path.display()
+        ));
+    }
+
+    let text = String::from_utf8(bytes).with_context(|| {
+        format!(
+            "{} must contain valid UTF-8 text: {}",
+            file_flag,
+            path.display()
+        )
+    })?;
+    if text.contains('\0') {
+        return Err(anyhow!(
+            "{} must not contain NUL bytes: {}",
+            file_flag,
+            path.display()
+        ));
+    }
+
+    Ok(normalize_body_newlines(text))
+}
+
+fn normalize_body_newlines(input: String) -> String {
+    input.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 /// Format tool result for human-readable output.
 fn format_human_output(tool_name: &str, text: &str) -> String {
     match tool_name {
@@ -2050,6 +2156,7 @@ Global flags:
 
 Examples:
   inboxapi send-email --to user@example.com --subject \"Hello\" --body \"Hi there\"
+  inboxapi send-email --to user@example.com --subject \"Newsletter\" --body-file ./body.txt --html-body-file ./email.html
   inboxapi send-email --to user@example.com --subject \"Invoice\" --body \"Attached\" --attachment ./invoice.pdf
   inboxapi send-email --to user@example.com --subject \"Fwd\" --body \"See attached\" --attachment-ref 9f0206bb-...
   inboxapi get-emails --limit 5
@@ -2062,6 +2169,7 @@ Examples:
   inboxapi search-emails --subject \"invoice\"
   inboxapi get-attachment abc123 --output ./file.pdf
   inboxapi send-reply --message-id \"<msg-id>\" --body \"Thanks!\"
+  inboxapi send-reply --message-id \"<msg-id>\" --body-file ./reply.txt --html-body-file ./reply.html
   inboxapi forward-email --message-id \"<msg-id>\" --to recipient@example.com
 ";
 
@@ -2116,14 +2224,29 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref to,
             ref subject,
             ref body,
+            ref body_file,
             ref cc,
             ref bcc,
             ref html_body,
+            ref html_body_file,
             ref from_name,
             ref priority,
             ref attachments,
             ref attachment_refs,
         }) => {
+            let body = resolve_body_input(
+                body.as_deref(),
+                body_file.as_deref(),
+                "--body",
+                "--body-file",
+            )?
+            .ok_or_else(|| anyhow!("Either --body or --body-file is required"))?;
+            let html_body = resolve_body_input(
+                html_body.as_deref(),
+                html_body_file.as_deref(),
+                "--html-body",
+                "--html-body-file",
+            )?;
             let attachment_entries = process_attachments(
                 attachments,
                 attachment_refs,
@@ -2136,7 +2259,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             let args = build_send_email_args(
                 to,
                 subject,
-                body,
+                &body,
                 cc.as_deref(),
                 bcc.as_deref(),
                 html_body.as_deref(),
@@ -2249,15 +2372,30 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         Some(Commands::SendReply {
             ref message_id,
             ref body,
+            ref body_file,
             ref cc,
             ref bcc,
             ref html_body,
+            ref html_body_file,
             ref from_name,
             reply_all,
             ref priority,
             ref attachments,
             ref attachment_refs,
         }) => {
+            let body = resolve_body_input(
+                body.as_deref(),
+                body_file.as_deref(),
+                "--body",
+                "--body-file",
+            )?
+            .ok_or_else(|| anyhow!("Either --body or --body-file is required"))?;
+            let html_body = resolve_body_input(
+                html_body.as_deref(),
+                html_body_file.as_deref(),
+                "--html-body",
+                "--html-body-file",
+            )?;
             let attachment_entries = process_attachments(
                 attachments,
                 attachment_refs,
@@ -6719,6 +6857,142 @@ mod tests {
     fn test_split_csv_filters_empty() {
         let result = split_csv("a@b.com,,c@d.com,");
         assert_eq!(result, vec!["a@b.com", "c@d.com"]);
+    }
+
+    // --- resolve_body_input tests ---
+
+    #[test]
+    fn test_resolve_body_input_prefers_inline_value() {
+        let result = resolve_body_input(Some("Hello"), None, "--body", "--body-file").unwrap();
+        assert_eq!(result.as_deref(), Some("Hello"));
+    }
+
+    #[test]
+    fn test_resolve_body_input_reads_file_contents() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("body.html");
+        std::fs::write(&path, "<p>Hello</p>\r\nSecond line\r").unwrap();
+
+        let result =
+            resolve_body_input(None, Some(&path), "--html-body", "--html-body-file").unwrap();
+
+        assert_eq!(result.as_deref(), Some("<p>Hello</p>\nSecond line\n"));
+    }
+
+    #[test]
+    fn test_resolve_body_input_rejects_both_inline_and_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("body.txt");
+        std::fs::write(&path, "Hello").unwrap();
+
+        let err =
+            resolve_body_input(Some("Hello"), Some(&path), "--body", "--body-file").unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("Use only one of --body or --body-file"));
+    }
+
+    #[test]
+    fn test_resolve_body_input_rejects_directory() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let err = resolve_body_input(None, Some(dir.path()), "--body", "--body-file").unwrap_err();
+
+        assert!(err.to_string().contains("regular file"));
+    }
+
+    #[test]
+    fn test_resolve_body_input_rejects_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("body.bin");
+        std::fs::write(&path, [0xff, 0xfe, 0xfd]).unwrap();
+
+        let err = resolve_body_input(None, Some(&path), "--body", "--body-file").unwrap_err();
+
+        assert!(err.to_string().contains("valid UTF-8 text"));
+    }
+
+    #[test]
+    fn test_resolve_body_input_rejects_nul_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("body.txt");
+        std::fs::write(&path, b"Hello\0World").unwrap();
+
+        let err = resolve_body_input(None, Some(&path), "--body", "--body-file").unwrap_err();
+
+        assert!(err.to_string().contains("must not contain NUL bytes"));
+    }
+
+    #[test]
+    fn test_resolve_body_input_rejects_oversized_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.txt");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(MAX_BODY_FILE_BYTES + 1).unwrap();
+
+        let err = resolve_body_input(None, Some(&path), "--body", "--body-file").unwrap_err();
+
+        assert!(err.to_string().contains(&MAX_BODY_FILE_BYTES.to_string()));
+    }
+
+    // --- CLI parsing tests ---
+
+    #[test]
+    fn test_send_email_accepts_body_file_flags() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "send-email",
+            "--to",
+            "user@example.com",
+            "--subject",
+            "Hello",
+            "--body-file",
+            "./body.txt",
+            "--html-body-file",
+            "./email.html",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::SendEmail {
+                body,
+                body_file,
+                html_body,
+                html_body_file,
+                ..
+            }) => {
+                assert!(body.is_none());
+                assert_eq!(body_file, Some(PathBuf::from("./body.txt")));
+                assert!(html_body.is_none());
+                assert_eq!(html_body_file, Some(PathBuf::from("./email.html")));
+            }
+            other => panic!(
+                "expected SendEmail command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
+    fn test_send_reply_rejects_body_and_body_file_together() {
+        let result = Cli::try_parse_from([
+            "inboxapi",
+            "send-reply",
+            "--message-id",
+            "<msg-id>",
+            "--body",
+            "Hello",
+            "--body-file",
+            "./reply.txt",
+        ]);
+
+        assert!(
+            result.is_err(),
+            "parsing should fail when both body flags are set"
+        );
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("--body-file"));
     }
 
     // --- guess_content_type tests ---

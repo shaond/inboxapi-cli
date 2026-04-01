@@ -21,14 +21,18 @@ cargo run -- whoami  # Show current account
 
 # CLI subcommands
 cargo run -- send-email --to user@example.com --subject "Hi" --body "Hello"
+cargo run -- send-email --to user@example.com --subject "Newsletter" --body-file ./body.txt --html-body-file ./newsletter.html
 cargo run -- get-emails --limit 5
 cargo run -- get-email "<message-id>"
 cargo run -- search-emails --subject "keyword"
 cargo run -- get-attachment <id> --output ./file.pdf
 cargo run -- send-reply --message-id "<id>" --body "Reply"
+cargo run -- send-reply --message-id "<id>" --body-file ./reply.txt --html-body-file ./reply.html
 cargo run -- forward-email --message-id "<id>" --to user@example.com
 cargo run -- help
 ```
+
+Prefer `--body-file` and `--html-body-file` for complex HTML, templates, or large generated content. File-backed bodies are validated as UTF-8 text, normalized to `\n`, and capped at 20 MiB.
 
 ## Development Workflow
 - Single Rust source file (`src/main.rs`) containing all proxy, auth, and CLI logic
