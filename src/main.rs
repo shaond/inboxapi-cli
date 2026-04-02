@@ -2633,7 +2633,20 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             )
             .await?;
             let text = extract_tool_result_text(&response)?;
-            let mut data = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({}));
+            let mut data = match serde_json::from_str::<Value>(&text) {
+                Ok(v) => v,
+                Err(err) => {
+                    eprintln!("Error parsing enable_encryption result as JSON: {err}");
+                    let safe = json!({
+                        "note": "enable_encryption returned invalid JSON; encryption_secret not printed.",
+                        "error": err.to_string(),
+                    });
+                    let safe_text =
+                        serde_json::to_string_pretty(&safe).unwrap_or_else(|_| safe.to_string());
+                    print_result("enable_encryption", &safe_text, cli.human);
+                    return Ok(());
+                }
+            };
             if let Some(secret) = data
                 .get("encryption_secret")
                 .and_then(|s| s.as_str())
@@ -2650,11 +2663,14 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                     let _ = save_credentials(c);
                 }
             }
-            print_result(
-                "enable_encryption",
-                &serde_json::to_string_pretty(&data).unwrap_or(text),
-                cli.human,
-            );
+            let out = match serde_json::to_string_pretty(&data) {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!("Error serializing enable_encryption output: {err}");
+                    data.to_string()
+                }
+            };
+            print_result("enable_encryption", &out, cli.human);
         }
         Some(Commands::ResetEncryption) => {
             if !prompt_yes_no(
@@ -3758,8 +3774,14 @@ fn redact_and_store_encryption_secret(response: &mut Value, creds: &mut Option<C
         return;
     };
 
-    let Ok(mut data) = serde_json::from_str::<Value>(&text) else {
-        return;
+    let mut data = match serde_json::from_str::<Value>(&text) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!(
+                "Warning: could not parse enable_encryption result as JSON for redaction: {err}"
+            );
+            return;
+        }
     };
 
     let secret = data
@@ -3789,7 +3811,14 @@ fn redact_and_store_encryption_secret(response: &mut Value, creds: &mut Option<C
         .and_then(|a| a.first_mut())
         .and_then(|i| i.get_mut("text"))
     {
-        *text_slot = json!(serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()));
+        let serialized = match serde_json::to_string(&data) {
+            Ok(s) => s,
+            Err(err) => {
+                eprintln!("Warning: could not serialize redacted enable_encryption result: {err}");
+                "{}".to_string()
+            }
+        };
+        *text_slot = json!(serialized);
     }
 }
 
