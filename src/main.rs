@@ -15,8 +15,12 @@ use tokio::io::{stdin, stdout, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// Maximum size of the SSE buffer (10MB) to prevent memory exhaustion from runaway streams.
 const MAX_SSE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+/// Maximum size of a single SSE event data payload (5MB).
+const MAX_SSE_EVENT_SIZE: usize = 5 * 1024 * 1024;
 /// Maximum size of a body/html body file read from disk (20MiB).
 const MAX_BODY_FILE_BYTES: u64 = 20 * 1024 * 1024;
+/// Maximum size of an attachment download (100MB) to prevent memory exhaustion.
+const MAX_ATTACHMENT_DOWNLOAD_BYTES: u64 = 100 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(name = "inboxapi", bin_name = "inboxapi")]
@@ -512,6 +516,7 @@ fn save_credentials(creds: &Credentials) -> Result<()> {
             .mode(0o600)
             .open(path)?;
         file.write_all(content.as_bytes())?;
+        file.sync_all()?;
     }
 
     #[cfg(not(unix))]
@@ -1460,9 +1465,18 @@ fn drain_sse_events(buf: &mut String) -> Vec<SseEvent> {
         }
 
         if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
+            let data = data_lines.join("\n");
+            if data.len() > MAX_SSE_EVENT_SIZE {
+                eprintln!(
+                    "SSE event data exceeds limit ({} bytes, max {}) - skipping",
+                    data.len(),
+                    MAX_SSE_EVENT_SIZE
+                );
+                continue;
+            }
             events.push(SseEvent {
                 _event_type: event_type,
-                data: data_lines.join("\n"),
+                data,
             });
         }
     }
@@ -1717,10 +1731,26 @@ async fn resolve_attachment_ref(
         .send()
         .await
         .context("Failed to download attachment")?;
+    if let Some(content_length) = file_resp.content_length() {
+        if content_length > MAX_ATTACHMENT_DOWNLOAD_BYTES {
+            return Err(anyhow!(
+                "Attachment too large ({} bytes, max {} bytes)",
+                content_length,
+                MAX_ATTACHMENT_DOWNLOAD_BYTES
+            ));
+        }
+    }
     let bytes = file_resp
         .bytes()
         .await
         .context("Failed to read attachment bytes")?;
+    if bytes.len() as u64 > MAX_ATTACHMENT_DOWNLOAD_BYTES {
+        return Err(anyhow!(
+            "Attachment too large ({} bytes, max {} bytes)",
+            bytes.len(),
+            MAX_ATTACHMENT_DOWNLOAD_BYTES
+        ));
+    }
     let content = data_encoding::BASE64.encode(&bytes);
 
     Ok(json!({
@@ -1802,7 +1832,10 @@ fn resolve_body_input(
 }
 
 fn read_body_file(path: &Path, file_flag: &str) -> Result<String> {
-    let metadata = std::fs::metadata(path).with_context(|| {
+    // Open file first, then query metadata on the handle to avoid TOCTOU races
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open {} {}", file_flag, path.display()))?;
+    let metadata = file.metadata().with_context(|| {
         format!(
             "Failed to read metadata for {} {}",
             file_flag,
@@ -1825,8 +1858,6 @@ fn read_body_file(path: &Path, file_flag: &str) -> Result<String> {
         ));
     }
 
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("Failed to open {} {}", file_flag, path.display()))?;
     let mut bytes = Vec::with_capacity((metadata.len().min(MAX_BODY_FILE_BYTES)) as usize);
     file.take(MAX_BODY_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
@@ -2356,10 +2387,26 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                     .send()
                     .await
                     .context("Failed to download attachment")?;
+                if let Some(content_length) = file_resp.content_length() {
+                    if content_length > MAX_ATTACHMENT_DOWNLOAD_BYTES {
+                        return Err(anyhow!(
+                            "Attachment too large ({} bytes, max {} bytes)",
+                            content_length,
+                            MAX_ATTACHMENT_DOWNLOAD_BYTES
+                        ));
+                    }
+                }
                 let bytes = file_resp
                     .bytes()
                     .await
                     .context("Failed to read attachment bytes")?;
+                if bytes.len() as u64 > MAX_ATTACHMENT_DOWNLOAD_BYTES {
+                    return Err(anyhow!(
+                        "Attachment too large ({} bytes, max {} bytes)",
+                        bytes.len(),
+                        MAX_ATTACHMENT_DOWNLOAD_BYTES
+                    ));
+                }
                 std::fs::write(output_path, &bytes)
                     .with_context(|| format!("Failed to write to {}", output_path))?;
                 if cli.human {
@@ -3384,13 +3431,37 @@ fn inject_rate_limit_warning(response: &mut Value, retry_after: u64) {
 }
 
 fn is_token_expired_error(response: &Value) -> bool {
+    /// Known auth-failure error codes from the API.
+    const AUTH_ERROR_CODES: &[i64] = &[-32001, -32003];
+
     fn text_matches_token_error(text: &str) -> bool {
         let lower = text.to_lowercase();
-        lower.contains("token")
-            && (lower.contains("expired") || lower.contains("invalid") || lower.contains("revoked"))
+        // Require phrases that unambiguously indicate an auth token issue, not
+        // generic mentions of "token" or "invalid" that could appear in email
+        // bodies or other unrelated error messages.
+        lower.contains("access token expired")
+            || lower.contains("token has expired")
+            || lower.contains("token is expired")
+            || lower.contains("token revoked")
+            || lower.contains("token is invalid")
+            || lower.contains("invalid access token")
+            || lower.contains("invalid refresh token")
+            || lower.contains("authentication failed")
+            || lower.contains("unauthorized")
     }
 
-    // Check JSON-RPC error (server-level auth failure)
+    // Check JSON-RPC error code first (most reliable signal)
+    if let Some(code) = response
+        .get("error")
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_i64())
+    {
+        if AUTH_ERROR_CODES.contains(&code) {
+            return true;
+        }
+    }
+
+    // Check JSON-RPC error message (server-level auth failure)
     if let Some(error_msg) = response
         .get("error")
         .and_then(|e| e.get("message"))
@@ -3434,6 +3505,7 @@ async fn refresh_access_token(
         .post(endpoint)
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "application/json, text/event-stream")
+        .timeout(std::time::Duration::from_secs(30))
         .json(&json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -5462,25 +5534,63 @@ mod tests {
 
     #[test]
     fn is_token_expired_error_detects_expired_token() {
-        let resp = make_error_response("Token is invalid, expired, or revoked");
+        let resp = make_error_response("Access token expired");
         assert!(is_token_expired_error(&resp));
     }
 
     #[test]
     fn is_token_expired_error_detects_invalid_token() {
-        let resp = make_error_response("Invalid token provided");
+        let resp = make_error_response("Invalid access token");
         assert!(is_token_expired_error(&resp));
     }
 
     #[test]
     fn is_token_expired_error_detects_revoked_token() {
-        let resp = make_error_response("This token has been revoked");
+        let resp = make_error_response("Token revoked");
         assert!(is_token_expired_error(&resp));
     }
 
     #[test]
     fn is_token_expired_error_case_insensitive() {
-        let resp = make_error_response("TOKEN IS EXPIRED");
+        let resp = make_error_response("TOKEN HAS EXPIRED");
+        assert!(is_token_expired_error(&resp));
+    }
+
+    #[test]
+    fn is_token_expired_error_detects_authentication_failed() {
+        let resp = make_error_response("Authentication failed");
+        assert!(is_token_expired_error(&resp));
+    }
+
+    #[test]
+    fn is_token_expired_error_detects_unauthorized() {
+        let resp = make_error_response("Unauthorized");
+        assert!(is_token_expired_error(&resp));
+    }
+
+    #[test]
+    fn is_token_expired_error_detects_auth_error_code() {
+        let resp = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32001,
+                "message": "Something went wrong"
+            }
+        });
+        assert!(is_token_expired_error(&resp));
+    }
+
+    #[test]
+    fn is_token_expired_error_detects_auth_error_code_32003() {
+        let resp = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32003,
+                "message": "Forbidden"
+            }
+        });
         assert!(is_token_expired_error(&resp));
     }
 
@@ -5503,12 +5613,19 @@ mod tests {
     }
 
     #[test]
+    fn is_token_expired_error_rejects_generic_token_mention() {
+        // Should not trigger on email content that happens to mention "token" and "invalid"
+        let resp = make_error_response("The token field in the form is invalid");
+        assert!(!is_token_expired_error(&resp));
+    }
+
+    #[test]
     fn is_token_expired_error_handles_missing_is_error() {
         let resp = json!({
             "jsonrpc": "2.0",
             "id": 1,
             "result": {
-                "content": [{"type": "text", "text": "Token expired"}]
+                "content": [{"type": "text", "text": "Token has expired"}]
             }
         });
         assert!(!is_token_expired_error(&resp));
