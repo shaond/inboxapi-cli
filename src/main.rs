@@ -1465,18 +1465,19 @@ fn drain_sse_events(buf: &mut String) -> Vec<SseEvent> {
         }
 
         if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
-            let data = data_lines.join("\n");
-            if data.len() > MAX_SSE_EVENT_SIZE {
+            // Check accumulated size before allocating the joined string
+            let estimated_size: usize = data_lines.iter().map(|l| l.len()).sum::<usize>()
+                + data_lines.len().saturating_sub(1); // newline separators
+            if estimated_size > MAX_SSE_EVENT_SIZE {
                 eprintln!(
                     "SSE event data exceeds limit ({} bytes, max {}) - skipping",
-                    data.len(),
-                    MAX_SSE_EVENT_SIZE
+                    estimated_size, MAX_SSE_EVENT_SIZE
                 );
                 continue;
             }
             events.push(SseEvent {
                 _event_type: event_type,
-                data,
+                data: data_lines.join("\n"),
             });
         }
     }
@@ -1506,6 +1507,15 @@ fn drain_sse_remainder(buf: &str) -> Option<SseEvent> {
     }
 
     if (event_type == "message" || event_type.is_empty()) && !data_lines.is_empty() {
+        let estimated_size: usize =
+            data_lines.iter().map(|l| l.len()).sum::<usize>() + data_lines.len().saturating_sub(1);
+        if estimated_size > MAX_SSE_EVENT_SIZE {
+            eprintln!(
+                "SSE remainder event data exceeds limit ({} bytes, max {}) - skipping",
+                estimated_size, MAX_SSE_EVENT_SIZE
+            );
+            return None;
+        }
         Some(SseEvent {
             _event_type: event_type,
             data: data_lines.join("\n"),
@@ -1684,6 +1694,50 @@ fn build_attachment_from_file(path: &str) -> Result<Value> {
 /// Timeout for downloading attachments (used in both resolve_attachment_ref and get-attachment).
 const ATTACHMENT_DOWNLOAD_TIMEOUT_SECS: u64 = 120;
 
+/// Download a URL with a streaming size cap to prevent memory exhaustion.
+/// Returns the downloaded bytes, aborting early if `MAX_ATTACHMENT_DOWNLOAD_BYTES` is exceeded.
+async fn download_with_limit(http_client: &HttpClient, url: &str) -> Result<Vec<u8>> {
+    use tokio_stream::StreamExt as _;
+
+    let resp = http_client
+        .get(url)
+        .timeout(std::time::Duration::from_secs(
+            ATTACHMENT_DOWNLOAD_TIMEOUT_SECS,
+        ))
+        .send()
+        .await
+        .context("Failed to download attachment")?;
+
+    // Fast reject if Content-Length is present and exceeds limit
+    if let Some(content_length) = resp.content_length() {
+        if content_length > MAX_ATTACHMENT_DOWNLOAD_BYTES {
+            return Err(anyhow!(
+                "Attachment too large ({} bytes, max {} bytes)",
+                content_length,
+                MAX_ATTACHMENT_DOWNLOAD_BYTES
+            ));
+        }
+    }
+
+    // Stream the body with a running byte counter
+    let mut stream = resp.bytes_stream();
+    let mut buf = Vec::new();
+    let mut total: u64 = 0;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("Failed to read attachment chunk")?;
+        total += chunk.len() as u64;
+        if total > MAX_ATTACHMENT_DOWNLOAD_BYTES {
+            return Err(anyhow!(
+                "Attachment too large (>{} bytes, max {} bytes)",
+                total,
+                MAX_ATTACHMENT_DOWNLOAD_BYTES
+            ));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
+
 /// Resolve a server-side attachment ref to an attachment entry.
 async fn resolve_attachment_ref(
     attachment_id: &str,
@@ -1722,35 +1776,8 @@ async fn resolve_attachment_ref(
         })
         .to_string();
 
-    // Download the file
-    let file_resp = http_client
-        .get(url)
-        .timeout(std::time::Duration::from_secs(
-            ATTACHMENT_DOWNLOAD_TIMEOUT_SECS,
-        ))
-        .send()
-        .await
-        .context("Failed to download attachment")?;
-    if let Some(content_length) = file_resp.content_length() {
-        if content_length > MAX_ATTACHMENT_DOWNLOAD_BYTES {
-            return Err(anyhow!(
-                "Attachment too large ({} bytes, max {} bytes)",
-                content_length,
-                MAX_ATTACHMENT_DOWNLOAD_BYTES
-            ));
-        }
-    }
-    let bytes = file_resp
-        .bytes()
-        .await
-        .context("Failed to read attachment bytes")?;
-    if bytes.len() as u64 > MAX_ATTACHMENT_DOWNLOAD_BYTES {
-        return Err(anyhow!(
-            "Attachment too large ({} bytes, max {} bytes)",
-            bytes.len(),
-            MAX_ATTACHMENT_DOWNLOAD_BYTES
-        ));
-    }
+    // Download the file with streaming size cap
+    let bytes = download_with_limit(http_client, url).await?;
     let content = data_encoding::BASE64.encode(&bytes);
 
     Ok(json!({
@@ -1832,7 +1859,23 @@ fn resolve_body_input(
 }
 
 fn read_body_file(path: &Path, file_flag: &str) -> Result<String> {
-    // Open file first, then query metadata on the handle to avoid TOCTOU races
+    // Pre-check: reject non-regular files (FIFOs, dirs, etc.) without blocking on open.
+    let pre_meta = std::fs::symlink_metadata(path).with_context(|| {
+        format!(
+            "Failed to read metadata for {} {}",
+            file_flag,
+            path.display()
+        )
+    })?;
+    if !pre_meta.is_file() {
+        return Err(anyhow!(
+            "{} path must resolve to a regular file: {}",
+            file_flag,
+            path.display()
+        ));
+    }
+
+    // Open the file, then verify metadata on the handle to avoid TOCTOU races.
     let file = std::fs::File::open(path)
         .with_context(|| format!("Failed to open {} {}", file_flag, path.display()))?;
     let metadata = file.metadata().with_context(|| {
@@ -2379,34 +2422,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                     .as_str()
                     .or_else(|| data["url"].as_str())
                     .ok_or_else(|| anyhow!("No URL in get_attachment response"))?;
-                let file_resp = http_client
-                    .get(url)
-                    .timeout(std::time::Duration::from_secs(
-                        ATTACHMENT_DOWNLOAD_TIMEOUT_SECS,
-                    ))
-                    .send()
-                    .await
-                    .context("Failed to download attachment")?;
-                if let Some(content_length) = file_resp.content_length() {
-                    if content_length > MAX_ATTACHMENT_DOWNLOAD_BYTES {
-                        return Err(anyhow!(
-                            "Attachment too large ({} bytes, max {} bytes)",
-                            content_length,
-                            MAX_ATTACHMENT_DOWNLOAD_BYTES
-                        ));
-                    }
-                }
-                let bytes = file_resp
-                    .bytes()
-                    .await
-                    .context("Failed to read attachment bytes")?;
-                if bytes.len() as u64 > MAX_ATTACHMENT_DOWNLOAD_BYTES {
-                    return Err(anyhow!(
-                        "Attachment too large ({} bytes, max {} bytes)",
-                        bytes.len(),
-                        MAX_ATTACHMENT_DOWNLOAD_BYTES
-                    ));
-                }
+                let bytes = download_with_limit(&http_client, url).await?;
                 std::fs::write(output_path, &bytes)
                     .with_context(|| format!("Failed to write to {}", output_path))?;
                 if cli.human {

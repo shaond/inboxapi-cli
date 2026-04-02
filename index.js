@@ -27,7 +27,8 @@ function findBinary() {
         // prevent symlink-based attacks from a compromised package.
         const realBin = fs.realpathSync(binPath);
         const realPkg = fs.realpathSync(pkgDir);
-        if (realBin.startsWith(realPkg + path.sep)) return realBin;
+        const relative = path.relative(realPkg, realBin);
+        if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return realBin;
       }
     } catch {}
   }
