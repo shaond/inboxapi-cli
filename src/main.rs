@@ -4510,12 +4510,115 @@ fn sanitize_arguments(msg: &mut Value) {
 }
 
 fn generate_agent_name() -> String {
-    use rand::RngCore;
+    use rand::seq::SliceRandom;
+    use rand::{Rng, RngCore};
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mood {
+        Silly,
+        Cheerful,
+        Cute,
+        Playful,
+    }
+
+    const MOODS: [Mood; 4] = [Mood::Silly, Mood::Cheerful, Mood::Cute, Mood::Playful];
+
+    fn adjectives_for(mood: Mood) -> &'static [&'static str] {
+        match mood {
+            Mood::Silly => &[
+                "giggly", "wobbly", "bonkers", "goofy", "zany", "wacky", "loopy", "dizzy",
+            ],
+            Mood::Cheerful => &[
+                "sunny", "jolly", "bright", "merry", "chipper", "gleeful", "peppy", "radiant",
+            ],
+            Mood::Cute => &[
+                "fluffy", "sparkly", "cozy", "tiny", "snuggly", "precious", "dainty", "fuzzy",
+            ],
+            Mood::Playful => &[
+                "bouncy", "zippy", "frisky", "prancy", "bubbly", "perky", "spritely", "jivy",
+            ],
+        }
+    }
+
+    const ANIMALS: &[(&str, &[Mood])] = &[
+        ("penguin", &[Mood::Silly, Mood::Cute]),
+        ("raccoon", &[Mood::Playful, Mood::Silly]),
+        ("owl", &[Mood::Cheerful, Mood::Cute]),
+        ("cat", &[Mood::Playful, Mood::Cheerful, Mood::Cute]),
+        ("capybara", &[Mood::Cute, Mood::Silly]),
+        ("otter", &[Mood::Silly, Mood::Playful]),
+        ("hamster", &[Mood::Cute, Mood::Silly]),
+        ("fox", &[Mood::Playful, Mood::Cheerful]),
+        ("duckling", &[Mood::Cute, Mood::Silly]),
+        ("panda", &[Mood::Cute, Mood::Silly]),
+        ("ferret", &[Mood::Playful, Mood::Silly]),
+        ("sloth", &[Mood::Silly, Mood::Cute]),
+        ("gecko", &[Mood::Silly, Mood::Playful]),
+        ("hedgehog", &[Mood::Cute]),
+        ("bunny", &[Mood::Cute, Mood::Playful]),
+        ("puppy", &[Mood::Cheerful, Mood::Playful]),
+        ("kitten", &[Mood::Cute, Mood::Playful]),
+        ("dolphin", &[Mood::Cheerful, Mood::Playful]),
+        ("butterfly", &[Mood::Cheerful, Mood::Cute]),
+        ("hummingbird", &[Mood::Cheerful, Mood::Playful]),
+        ("quokka", &[Mood::Cheerful, Mood::Silly]),
+        ("robin", &[Mood::Cheerful, Mood::Cute]),
+        ("piglet", &[Mood::Cute, Mood::Silly]),
+        ("lamb", &[Mood::Cute, Mood::Cheerful]),
+        ("chipmunk", &[Mood::Playful, Mood::Silly]),
+        ("seahorse", &[Mood::Cute, Mood::Cheerful]),
+        ("koala", &[Mood::Cute, Mood::Silly]),
+        ("honeybee", &[Mood::Cheerful, Mood::Playful]),
+        ("puffin", &[Mood::Silly, Mood::Cute]),
+        ("fawn", &[Mood::Cute, Mood::Cheerful]),
+        ("kangaroo", &[Mood::Playful, Mood::Cheerful]),
+    ];
+
+    // Markov transition weights: [Silly, Cheerful, Cute, Playful]
+    const TRANSITIONS: [[f64; 4]; 4] = [
+        [0.15, 0.30, 0.25, 0.30], // Silly → favors Cheerful & Playful
+        [0.25, 0.15, 0.30, 0.30], // Cheerful → favors Cute & Playful
+        [0.25, 0.30, 0.15, 0.30], // Cute → favors Cheerful & Playful
+        [0.30, 0.25, 0.30, 0.15], // Playful → favors Silly & Cute
+    ];
+
     let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 6];
-    rng.fill_bytes(&mut buf);
-    let suffix: String = buf.iter().map(|b| format!("{:02x}", b)).collect();
-    format!("inboxapi-agent-{}", suffix)
+
+    let mood1 = *MOODS.choose(&mut rng).unwrap();
+    let adj1 = *adjectives_for(mood1).choose(&mut rng).unwrap();
+
+    let mood1_idx = MOODS.iter().position(|m| *m == mood1).unwrap();
+    let weights = &TRANSITIONS[mood1_idx];
+    let roll: f64 = rng.gen();
+    let mut cumulative = 0.0;
+    let mut mood2 = MOODS[3]; // float rounding safety
+    for (i, &w) in weights.iter().enumerate() {
+        cumulative += w;
+        if roll < cumulative {
+            mood2 = MOODS[i];
+            break;
+        }
+    }
+
+    let adj2 = *adjectives_for(mood2).choose(&mut rng).unwrap();
+
+    let compatible: Vec<&str> = ANIMALS
+        .iter()
+        .filter(|(_, moods)| moods.contains(&mood1) || moods.contains(&mood2))
+        .map(|(name, _)| *name)
+        .collect();
+
+    let animal = if compatible.is_empty() {
+        ANIMALS.choose(&mut rng).unwrap().0
+    } else {
+        *compatible.choose(&mut rng).unwrap()
+    };
+
+    let mut suffix_bytes = [0u8; 2];
+    rng.fill_bytes(&mut suffix_bytes);
+    let suffix: String = suffix_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+
+    format!("{}-{}-{}-{}", adj1, adj2, animal, suffix)
 }
 
 async fn create_account_and_authenticate(
@@ -5021,22 +5124,18 @@ mod tests {
         let parts: Vec<&str> = name.split('-').collect();
         assert_eq!(
             parts.len(),
-            3,
-            "Expected inboxapi-agent-<hex>, got: {}",
+            4,
+            "Expected <adj>-<adj>-<animal>-<hex>, got: {}",
             name
         );
-        assert_eq!(parts[0], "inboxapi");
-        assert_eq!(parts[1], "agent");
-        assert_eq!(
-            parts[2].len(),
-            12,
-            "Expected 12 hex chars, got: {}",
-            parts[2]
-        );
+        assert!(!parts[0].is_empty(), "Expected adj1, got: {}", name);
+        assert!(!parts[1].is_empty(), "Expected adj2, got: {}", name);
+        assert!(!parts[2].is_empty(), "Expected animal, got: {}", name);
+        assert_eq!(parts[3].len(), 4, "Expected 4 hex chars, got: {}", parts[3]);
         assert!(
-            parts[2].chars().all(|c| c.is_ascii_hexdigit()),
+            parts[3].chars().all(|c| c.is_ascii_hexdigit()),
             "Expected hex suffix, got: {}",
-            parts[2]
+            parts[3]
         );
     }
 
@@ -5057,9 +5156,11 @@ mod tests {
             let name = generate_agent_name();
             let parts: Vec<&str> = name.split('-').collect();
             assert!(
-                parts[2].len() == 12 && parts[2].chars().all(|c| c.is_ascii_hexdigit()),
+                parts.len() == 4
+                    && parts[3].len() == 4
+                    && parts[3].chars().all(|c| c.is_ascii_hexdigit()),
                 "Expected hex suffix, got: {}",
-                parts[2]
+                name
             );
         }
     }
