@@ -76,16 +76,21 @@ function main() {
     }
   }
 
-  const logLine = `[${timestamp}] ${shortName}: ${details}\n`;
+  const sanitize = (s) => (s || "").replace(/[\r\n]/g, " ");
+  const logLine = `[${timestamp}] ${sanitize(shortName)}: ${sanitize(details)}\n`;
 
   // Write to log file
   const logPath = path.join(cwd, ".claude", "inboxapi-activity.log");
   try {
     const logDir = path.dirname(logPath);
     if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
+      fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
     }
-    fs.appendFileSync(logPath, logLine);
+    // Best-effort: ensure directory is user-only accessible even if it already existed
+    try { fs.chmodSync(logDir, 0o700); } catch {}
+    fs.appendFileSync(logPath, logLine, { mode: 0o600 });
+    // Best-effort: harden log file permissions if it already existed
+    try { fs.chmodSync(logPath, 0o600); } catch {}
   } catch {
     // Non-critical — don't fail the tool call
   }

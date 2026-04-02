@@ -22,7 +22,14 @@ function findBinary() {
     try {
       const pkgDir = path.dirname(require.resolve(`${pkg}/package.json`, { paths: [__dirname] }));
       const binPath = path.join(pkgDir, binName);
-      if (fs.existsSync(binPath)) return binPath;
+      if (fs.existsSync(binPath)) {
+        // Validate resolved path is within the expected package directory to
+        // prevent symlink-based attacks from a compromised package.
+        const realBin = fs.realpathSync(binPath);
+        const realPkg = fs.realpathSync(pkgDir);
+        const relative = path.relative(realPkg, realBin);
+        if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return realBin;
+      }
     } catch {}
   }
 
