@@ -1,14 +1,13 @@
 # CLI Agent Stub
 
-Canonical workflow lives in `/Users/shaond/Developer/inboxapi/AGENTS.md`.
+Canonical workflow lives in `../AGENTS.md`.
 
 Repo-local notes:
 
 - Verification flow: `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test`,
   `cargo build`
 - This repo owns the CLI binary, npm packaging, and agent-install setup logic
-- Canonical service docs live in
-  `/Users/shaond/Developer/inboxapi/docs/services/cli/`
+- Canonical service docs live in `../docs/services/cli/`
 - Never re-create buffered readers (`BufReader`) in a loop or per-call; store them in the struct so buffered data is not lost
 - Use iterators (`iter().take(n)`) instead of index-based `for i in 0..n` loops when only indexing a single collection
 - Add timeouts to any blocking I/O (network, subprocess reads) — tests and tools must not hang indefinitely
