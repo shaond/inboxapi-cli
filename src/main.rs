@@ -1693,6 +1693,30 @@ fn build_attachment_from_file(path: &str) -> Result<Value> {
 
 /// Timeout for downloading attachments (used in both resolve_attachment_ref and get-attachment).
 const ATTACHMENT_DOWNLOAD_TIMEOUT_SECS: u64 = 120;
+const ATTACHMENT_ERROR_PREVIEW_BYTES: usize = 1024;
+
+async fn response_preview(resp: reqwest::Response) -> String {
+    use tokio_stream::StreamExt as _;
+
+    let mut stream = resp.bytes_stream();
+    let mut buf = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let Ok(chunk) = chunk else {
+            break;
+        };
+        let remaining = ATTACHMENT_ERROR_PREVIEW_BYTES.saturating_sub(buf.len());
+        if remaining == 0 {
+            break;
+        }
+        let take = remaining.min(chunk.len());
+        buf.extend_from_slice(&chunk[..take]);
+        if buf.len() >= ATTACHMENT_ERROR_PREVIEW_BYTES {
+            break;
+        }
+    }
+
+    String::from_utf8_lossy(&buf).trim().to_string()
+}
 
 /// Download a URL with a streaming size cap to prevent memory exhaustion.
 /// Returns the downloaded bytes, aborting early if `MAX_ATTACHMENT_DOWNLOAD_BYTES` is exceeded.
@@ -1707,6 +1731,16 @@ async fn download_with_limit(http_client: &HttpClient, url: &str) -> Result<Vec<
         .send()
         .await
         .context("Failed to download attachment")?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let preview = response_preview(resp).await;
+        return Err(anyhow!(
+            "Attachment download failed with HTTP {}: {}",
+            status.as_u16(),
+            preview
+        ));
+    }
 
     // Fast reject if Content-Length is present and exceeds limit
     if let Some(content_length) = resp.content_length() {
@@ -7714,6 +7748,52 @@ mod tests {
     fn test_build_attachment_from_file_missing_file() {
         let result = build_attachment_from_file("/nonexistent/file.pdf");
         assert!(result.is_err());
+    }
+
+    fn start_single_response_server(status: &str, body: &'static [u8]) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let status = status.to_string();
+
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            let response = format!(
+                "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                status,
+                body.len()
+            );
+            std::io::Write::write_all(&mut stream, response.as_bytes()).unwrap();
+            std::io::Write::write_all(&mut stream, body).unwrap();
+        });
+
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn test_download_with_limit_accepts_success_response() {
+        let url = start_single_response_server("200 OK", b"real image bytes");
+        let client = HttpClient::new();
+
+        let bytes = download_with_limit(&client, &url).await.unwrap();
+
+        assert_eq!(bytes, b"real image bytes");
+    }
+
+    #[tokio::test]
+    async fn test_download_with_limit_rejects_http_error_response() {
+        let url = start_single_response_server(
+            "404 Not Found",
+            b"File not found in B2: <Error><Code>NoSuchKey</Code></Error>",
+        );
+        let client = HttpClient::new();
+
+        let err = download_with_limit(&client, &url).await.unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("HTTP 404"));
+        assert!(message.contains("NoSuchKey"));
     }
 
     // --- extract_tool_result_text tests ---
