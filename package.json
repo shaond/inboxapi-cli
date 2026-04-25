@@ -1,6 +1,6 @@
 {
   "name": "@inboxapi/cli",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "📧 Email for your AI 🤖",
   "main": "index.js",
   "bin": {
