@@ -56,7 +56,7 @@ Help the user reply to an email with full thread context.
    - `--html-body "<html>"` — send HTML-formatted reply
    - `--body-file "<path>"` — read the plain-text reply body from a file
    - `--html-body-file "<path>"` — read the HTML reply body from a file
-   - `--from-name "Name"` — override sender display name
+   - `--from-name "Name"` — deprecated and ignored; sender identity is enforced by InboxAPI
    - `--priority <high|normal|low>` — set email priority
    - `--attachment "<path>"` — attach a local file (repeatable for multiple files)
    - `--attachment-ref "<id>"` — attach by server-side attachment ID (repeatable)
