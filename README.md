@@ -171,7 +171,7 @@ inboxapi send-email --to user@example.com --subject "Newsletter" --body-file ./b
 inboxapi send-email --to user@example.com --subject "Screenshot" --body-file ./body.txt --html-body-file ./email-with-inline-image.html
 ```
 
-Supports `--body` or `--body-file`, `--html-body` or `--html-body-file`, `--cc`, `--bcc`, `--from-name`, `--priority`, `--attachment` (local files, repeatable), and `--attachment-ref` (server-side attachment IDs, repeatable).
+Supports `--body` or `--body-file`, `--html-body` or `--html-body-file`, `--cc`, `--bcc`, `--priority`, `--attachment` (local files, repeatable), and `--attachment-ref` (server-side attachment IDs, repeatable). `--from-name` is deprecated and ignored; InboxAPI enforces the authenticated account identity.
 
 Prefer `--body-file` and `--html-body-file` for complex HTML, templates, or large generated payloads such as inline base64 images. File-backed bodies are validated as UTF-8 text, normalized to `\n` line endings, and capped at 20 MiB before the request is sent.
 
