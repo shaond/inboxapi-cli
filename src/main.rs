@@ -124,7 +124,7 @@ enum Commands {
         #[arg(long = "html-body-file", conflicts_with = "html_body")]
         html_body_file: Option<PathBuf>,
         /// Deprecated and ignored by the server
-        #[arg(long)]
+        #[arg(long, hide = true)]
         from_name: Option<String>,
         /// Priority: low, normal, or high
         #[arg(long)]
@@ -208,7 +208,7 @@ enum Commands {
         #[arg(long = "html-body-file", conflicts_with = "html_body")]
         html_body_file: Option<PathBuf>,
         /// Deprecated and ignored by the server
-        #[arg(long)]
+        #[arg(long, hide = true)]
         from_name: Option<String>,
         /// Reply to all recipients in the thread
         #[arg(long)]
@@ -238,7 +238,7 @@ enum Commands {
         #[arg(long)]
         cc: Option<String>,
         /// Deprecated and ignored by the server
-        #[arg(long)]
+        #[arg(long, hide = true)]
         from_name: Option<String>,
         /// Attach a local file (can be repeated)
         #[arg(long = "attachment")]
@@ -1848,7 +1848,7 @@ fn build_send_email_args(
     cc: Option<&str>,
     bcc: Option<&str>,
     html_body: Option<&str>,
-    from_name: Option<&str>,
+    _from_name: Option<&str>,
     priority: Option<&str>,
     attachments_json: Vec<Value>,
 ) -> Value {
@@ -1865,9 +1865,6 @@ fn build_send_email_args(
     }
     if let Some(html_body) = html_body {
         args["html_body"] = json!(html_body);
-    }
-    if let Some(from_name) = from_name {
-        args["from_name"] = json!(from_name);
     }
     if let Some(priority) = priority {
         args["priority"] = json!(priority);
@@ -2342,7 +2339,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref bcc,
             ref html_body,
             ref html_body_file,
-            ref from_name,
+            from_name: _,
             ref priority,
             ref attachments,
             ref attachment_refs,
@@ -2376,7 +2373,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 cc.as_deref(),
                 bcc.as_deref(),
                 html_body.as_deref(),
-                from_name.as_deref(),
+                None,
                 priority.as_deref(),
                 attachment_entries,
             );
@@ -2479,7 +2476,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref bcc,
             ref html_body,
             ref html_body_file,
-            ref from_name,
+            from_name: _,
             reply_all,
             ref priority,
             ref attachments,
@@ -2523,9 +2520,6 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             if let Some(html_body) = html_body {
                 args["html_body"] = json!(html_body);
             }
-            if let Some(from_name) = from_name {
-                args["from_name"] = json!(from_name);
-            }
             if let Some(priority) = priority {
                 args["priority"] = json!(priority);
             }
@@ -2542,7 +2536,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref to,
             ref note,
             ref cc,
-            ref from_name,
+            from_name: _,
             ref attachments,
             ref attachment_refs,
         }) => {
@@ -2564,9 +2558,6 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             }
             if let Some(cc) = cc {
                 args["cc"] = json!(split_csv(cc));
-            }
-            if let Some(from_name) = from_name {
-                args["from_name"] = json!(from_name);
             }
             if !attachment_entries.is_empty() {
                 args["attachments"] = json!(attachment_entries);
@@ -4576,6 +4567,10 @@ fn inject_token(msg: &mut Value, credentials: &Credentials) {
                     if let Some(arguments) =
                         params.get_mut("arguments").and_then(|a| a.as_object_mut())
                     {
+                        if IDENTITY_TOOLS.contains(&name.as_str()) {
+                            arguments.remove("from_name");
+                        }
+
                         // Only inject if token is not already present
                         if !arguments.contains_key("token") {
                             arguments.insert("token".to_string(), json!(credentials.access_token));
@@ -4607,10 +4602,17 @@ fn sanitize_arguments(msg: &mut Value) {
     if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
         if method == "tools/call" {
             if let Some(params) = msg.get_mut("params").and_then(|p| p.as_object_mut()) {
+                let is_identity_tool = params
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .is_some_and(|name| IDENTITY_TOOLS.contains(&name));
                 if let Some(arguments) = params.get_mut("arguments").and_then(|a| a.as_object_mut())
                 {
                     arguments.remove("domain");
                     arguments.remove("access_token");
+                    if is_identity_tool {
+                        arguments.remove("from_name");
+                    }
                     let dunder_keys: Vec<String> = arguments
                         .keys()
                         .filter(|k| k.starts_with("__"))
@@ -5833,7 +5835,7 @@ mod tests {
             "[Bug Report] Login fails"
         );
         assert_eq!(msg["params"]["arguments"]["body"], "Steps to reproduce...");
-        assert!(msg["params"]["arguments"]["from_name"].is_null());
+        assert!(msg["params"]["arguments"].get("from_name").is_none());
     }
 
     #[test]
@@ -5889,7 +5891,7 @@ mod tests {
         let mut msg = make_tools_call("report_bug", json!({"subject": "Bug", "body": "Details"}));
         assert!(mutate_feedback_tool(&mut msg, None));
         assert_eq!(msg["params"]["name"], "send_email");
-        assert!(msg["params"]["arguments"]["from_name"].is_null());
+        assert!(msg["params"]["arguments"].get("from_name").is_none());
     }
 
     #[test]
@@ -6791,7 +6793,7 @@ mod tests {
         assert_eq!(args["reply_all"], true);
         assert_eq!(args["cc"], json!(["cc@test.com"]));
         assert_eq!(args["bcc"], json!(["bcc@test.com"]));
-        assert_eq!(args["from_name"], "agent");
+        assert!(args.get("from_name").is_none());
         assert_eq!(args["html_body"], "<p>Thanks</p>");
         assert_eq!(args["priority"], "high");
         assert_eq!(args["token"], "tok");
@@ -6819,7 +6821,7 @@ mod tests {
         assert_eq!(args["body"], "Hello");
         assert_eq!(args["cc"], json!(["cc@b.com"]));
         assert_eq!(args["bcc"], json!(["bcc@b.com"]));
-        assert_eq!(args["from_name"], "sender");
+        assert!(args.get("from_name").is_none());
         assert_eq!(args["html_body"], "<p>Hello</p>");
         assert_eq!(args["priority"], "low");
         assert_eq!(args["token"], "tok");
@@ -6842,7 +6844,7 @@ mod tests {
         assert_eq!(args["message_id"], "<fwd@test>");
         assert_eq!(args["to"], json!(["x@y.com"]));
         assert_eq!(args["cc"], json!(["cc@y.com"]));
-        assert_eq!(args["from_name"], "fwder");
+        assert!(args.get("from_name").is_none());
         assert_eq!(args["note"], "FYI");
         assert_eq!(args["token"], "tok");
     }
@@ -6955,7 +6957,8 @@ mod tests {
         );
         inject_token(&mut msg, &make_creds("tok"));
         let args = msg["params"]["arguments"].as_object().unwrap();
-        assert_eq!(args.len(), 9); // 8 fields + token
+        assert_eq!(args.len(), 8); // 7 fields + token; from_name is ignored
+        assert!(args.get("from_name").is_none());
         assert_eq!(args["token"], "tok");
     }
 
@@ -7051,7 +7054,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_preserves_normal_params() {
+    fn test_sanitize_strips_from_name_on_identity_tools() {
         let mut msg = make_tools_call(
             "send_email",
             json!({"to": "a@b.com", "subject": "Hi", "body": "Hello", "from_name": "Test"}),
@@ -7061,7 +7064,7 @@ mod tests {
         assert_eq!(args["to"], "a@b.com");
         assert_eq!(args["subject"], "Hi");
         assert_eq!(args["body"], "Hello");
-        assert_eq!(args["from_name"], "Test");
+        assert!(args.get("from_name").is_none());
     }
 
     // --- maxLength injection tests ---
@@ -7672,7 +7675,7 @@ mod tests {
             vec![],
         );
         assert_eq!(args["html_body"], "<p>Hello</p>");
-        assert_eq!(args["from_name"], "sender-name");
+        assert!(args.get("from_name").is_none());
         assert_eq!(args["priority"], "high");
     }
 

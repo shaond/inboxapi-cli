@@ -47,7 +47,6 @@ Help the user forward an email to another recipient.
    - `--attachment "<path>"` — attach a local file (repeatable for multiple files)
    - `--attachment-ref "<id>"` — attach by server-side attachment ID (repeatable)
    - `--cc "addr1,addr2"` — CC recipients (comma-separated)
-   - `--from-name "Name"` — deprecated and ignored; sender identity is enforced by InboxAPI
 
 ## Notes
 
