@@ -1675,8 +1675,16 @@ fn message_has_visible_body(message: &Value) -> bool {
     !body.is_empty() || !html_body.is_empty()
 }
 
+fn sent_email_items(sent_items: &Value) -> Option<&Vec<Value>> {
+    sent_items
+        .as_array()
+        .or_else(|| sent_items["sent_emails"].as_array())
+        .or_else(|| sent_items["emails"].as_array())
+        .or_else(|| sent_items["results"].as_array())
+}
+
 fn find_recent_sent_message<'a>(sent_items: &'a Value, message_id: &str) -> Option<&'a Value> {
-    sent_items.as_array()?.iter().find(|item| {
+    sent_email_items(sent_items)?.iter().find(|item| {
         item["message_id"]
             .as_str()
             .or_else(|| item["messageId"].as_str())
@@ -1694,7 +1702,9 @@ async fn verify_send_reply_delivery(
         return Ok(());
     };
 
-    for attempt in 0..3 {
+    const SEND_REPLY_VERIFY_ATTEMPTS: usize = 6;
+
+    for attempt in 0..SEND_REPLY_VERIFY_ATTEMPTS {
         let response = call_mcp_tool(
             endpoint,
             creds,
@@ -1706,18 +1716,37 @@ async fn verify_send_reply_delivery(
         let sent_text = extract_tool_result_text(&response)?;
         if let Ok(sent_items) = serde_json::from_str::<Value>(&sent_text) {
             if let Some(message) = find_recent_sent_message(&sent_items, &message_id) {
-                if !message_has_visible_body(message) {
+                if message_has_visible_body(message) {
+                    return Ok(());
+                }
+                if let Ok(email_response) = call_mcp_tool(
+                    endpoint,
+                    creds,
+                    http_client,
+                    "get_email",
+                    json!({"message_id": message_id, "content_format": "all"}),
+                )
+                .await
+                {
+                    if let Ok(email_text) = extract_tool_result_text(&email_response) {
+                        if let Ok(email) = serde_json::from_str::<Value>(&email_text) {
+                            if message_has_visible_body(&email) {
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+                if attempt + 1 == SEND_REPLY_VERIFY_ATTEMPTS {
                     return Err(anyhow!(
                         "send-reply reported success, but sent message {} has an empty body",
                         message_id
                     ));
                 }
-                return Ok(());
             }
         }
 
-        if attempt < 2 {
-            tokio::time::sleep(Duration::from_millis(750)).await;
+        if attempt + 1 < SEND_REPLY_VERIFY_ATTEMPTS {
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
 
@@ -7055,6 +7084,20 @@ mod tests {
             {"message_id": "<one@test>", "body": "first"},
             {"message_id": "<two@test>", "body": "second"}
         ]);
+        let message = find_recent_sent_message(&sent_items, "<two@test>").unwrap();
+        assert_eq!(message["body"], "second");
+    }
+
+    #[test]
+    fn test_find_recent_sent_message_matches_wrapped_sent_emails() {
+        let sent_items = json!({
+            "total": 2,
+            "sent_emails": [
+                {"message_id": "<one@test>", "body": "first"},
+                {"message_id": "<two@test>", "body": "second"}
+            ],
+            "returned": 2
+        });
         let message = find_recent_sent_message(&sent_items, "<two@test>").unwrap();
         assert_eq!(message["body"], "second");
     }
