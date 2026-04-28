@@ -536,6 +536,32 @@ fn prompt_yes_no(prompt: &str) -> bool {
     matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
+fn add_six_digit_code_arg(args: &mut Value, code: &Option<String>, label: &str) -> Result<()> {
+    if let Some(code) = code {
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid {label} code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
+    }
+
+    Ok(())
+}
+
+fn build_account_recover_args(name: &str, email: &str, code: &Option<String>) -> Result<Value> {
+    let mut args = json!({"account_name": name, "owner_email": email});
+    add_six_digit_code_arg(&mut args, code, "recovery")?;
+    Ok(args)
+}
+
+fn build_verify_owner_args(email: &str, code: &Option<String>) -> Result<Value> {
+    let mut args = json!({"owner_email": email});
+    add_six_digit_code_arg(&mut args, code, "verification")?;
+    Ok(args)
+}
+
 fn prompt_line(prompt: &str) -> Result<String> {
     eprint!("{}", prompt);
     let mut input = String::new();
@@ -2676,16 +2702,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
-            if let Some(code) = code {
-                let c = code.trim();
-                if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-                    return Err(anyhow!(
-                        "Invalid recovery code format. Expected a 6-digit numeric code."
-                    ));
-                }
-                args["code"] = json!(c);
-            }
+            let args = build_account_recover_args(name, email, code)?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -2702,10 +2719,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = build_verify_owner_args(email, code)?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -4929,6 +4943,40 @@ mod tests {
             email: None,
             encryption_secret: None,
         }
+    }
+
+    #[test]
+    fn build_verify_owner_args_uses_mcp_schema_field_names() {
+        let code = Some(" 123456 ".to_string());
+        let args = build_verify_owner_args("human@example.com", &code).unwrap();
+
+        assert_eq!(
+            args,
+            json!({"owner_email": "human@example.com", "code": "123456"})
+        );
+    }
+
+    #[test]
+    fn build_account_recover_args_uses_mcp_schema_field_names() {
+        let code = Some("654321".to_string());
+        let args = build_account_recover_args("agent-name", "human@example.com", &code).unwrap();
+
+        assert_eq!(
+            args,
+            json!({
+                "account_name": "agent-name",
+                "owner_email": "human@example.com",
+                "code": "654321"
+            })
+        );
+    }
+
+    #[test]
+    fn build_verify_owner_args_rejects_invalid_code_format() {
+        let code = Some("abc123".to_string());
+        let err = build_verify_owner_args("human@example.com", &code).unwrap_err();
+
+        assert!(err.to_string().contains("Invalid verification code format"));
     }
 
     // --- inject_token tests ---
