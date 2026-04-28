@@ -2297,6 +2297,28 @@ async fn run_simple_command(
     Ok(())
 }
 
+fn account_recover_args(name: &str, email: &str, code: Option<&str>) -> Result<Value> {
+    let mut args = json!({"account_name": name, "owner_email": email});
+    if let Some(code) = code {
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid recovery code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
+    }
+    Ok(args)
+}
+
+fn verify_owner_args(email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"owner_email": email});
+    if let Some(code) = code {
+        args["code"] = json!(code);
+    }
+    args
+}
+
 /// Run a CLI subcommand that calls an MCP tool.
 async fn run_cli_command(cli: &Cli) -> Result<()> {
     let http_client = HttpClient::new();
@@ -2676,16 +2698,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
-            if let Some(code) = code {
-                let c = code.trim();
-                if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-                    return Err(anyhow!(
-                        "Invalid recovery code format. Expected a 6-digit numeric code."
-                    ));
-                }
-                args["code"] = json!(c);
-            }
+            let args = account_recover_args(name, email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -2702,10 +2715,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = verify_owner_args(email, code.as_deref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -4929,6 +4939,49 @@ mod tests {
             email: None,
             encryption_secret: None,
         }
+    }
+
+    #[test]
+    fn account_recover_args_uses_api_field_names() {
+        let args = account_recover_args("test-account", "owner@example.com", None)
+            .expect("account recovery args should be valid without a code");
+
+        assert_eq!(
+            args,
+            json!({"account_name": "test-account", "owner_email": "owner@example.com"}),
+            "account recovery payload should use API field names"
+        );
+    }
+
+    #[test]
+    fn account_recover_args_trims_and_validates_code() {
+        let args = account_recover_args("test-account", "owner@example.com", Some(" 123456 "))
+            .expect("six digit recovery code should be accepted");
+
+        assert_eq!(
+            args,
+            json!({
+                "account_name": "test-account",
+                "owner_email": "owner@example.com",
+                "code": "123456"
+            }),
+            "account recovery payload should include a trimmed code"
+        );
+        assert!(
+            account_recover_args("test-account", "owner@example.com", Some("12345a")).is_err(),
+            "non-numeric recovery codes should be rejected"
+        );
+    }
+
+    #[test]
+    fn verify_owner_args_uses_api_field_names() {
+        let args = verify_owner_args("owner@example.com", Some("654321"));
+
+        assert_eq!(
+            args,
+            json!({"owner_email": "owner@example.com", "code": "654321"}),
+            "verify owner payload should use owner_email"
+        );
     }
 
     // --- inject_token tests ---
