@@ -307,6 +307,9 @@ enum Commands {
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        yes: bool,
     },
     /// Enable email encryption
     EnableEncryption,
@@ -543,6 +546,18 @@ fn prompt_line(prompt: &str) -> Result<String> {
         .read_line(&mut input)
         .context("Failed to read input")?;
     Ok(input.trim().to_string())
+}
+
+fn normalize_verification_code(code: &str, label: &str) -> Result<String> {
+    let trimmed = code.trim();
+    if trimmed.len() == 6 && trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        Ok(trimmed.to_string())
+    } else {
+        Err(anyhow!(
+            "Invalid {} code format. Expected a 6-digit numeric code.",
+            label
+        ))
+    }
 }
 
 fn reset_credentials() -> Result<()> {
@@ -2278,6 +2293,8 @@ Examples:
   inboxapi get-addressbook
   inboxapi search-emails --subject \"invoice\"
   inboxapi get-attachment abc123 --output ./file.pdf
+  inboxapi verify-owner --email owner@example.com --yes
+  inboxapi verify-owner --email owner@example.com --code 123456 --yes
   inboxapi send-reply --message-id \"<msg-id>\" --body \"Thanks!\"
   inboxapi send-reply --message-id \"<msg-id>\" --body-file ./reply.txt --html-body-file ./reply.html
   inboxapi forward-email --message-id \"<msg-id>\" --to recipient@example.com
@@ -2678,13 +2695,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         }) => {
             let mut args = json!({"name": name, "email": email});
             if let Some(code) = code {
-                let c = code.trim();
-                if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-                    return Err(anyhow!(
-                        "Invalid recovery code format. Expected a 6-digit numeric code."
-                    ));
-                }
-                args["code"] = json!(c);
+                args["code"] = json!(normalize_verification_code(code, "recovery")?);
             }
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
@@ -2694,17 +2705,20 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         Some(Commands::VerifyOwner {
             ref email,
             ref code,
+            yes,
         }) => {
-            if !prompt_yes_no(&format!(
-                "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                email
-            )) {
+            if !yes
+                && !prompt_yes_no(&format!(
+                    "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
+                    email
+                ))
+            {
                 println!("Aborted.");
                 return Ok(());
             }
             let mut args = json!({"email": email});
             if let Some(code) = code {
-                args["code"] = json!(code);
+                args["code"] = json!(normalize_verification_code(code, "verification")?);
             }
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
@@ -4952,6 +4966,31 @@ mod tests {
 
         let token = msg["params"]["arguments"]["token"].as_str().unwrap();
         assert_eq!(token, "test-token-123");
+    }
+
+    #[test]
+    fn inject_token_adds_token_to_verify_owner() {
+        let mut msg = make_tools_call("verify_owner", json!({"email": "owner@example.com"}));
+        inject_token(&mut msg, &make_creds("verify-token"));
+
+        assert_eq!(msg["params"]["arguments"]["token"], "verify-token");
+    }
+
+    #[test]
+    fn normalize_verification_code_accepts_trimmed_six_digits() {
+        let code = normalize_verification_code(" 123456\n", "verification").unwrap();
+
+        assert_eq!(code, "123456");
+    }
+
+    #[test]
+    fn normalize_verification_code_rejects_non_six_digit_codes() {
+        let err = normalize_verification_code("12345a", "verification").unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "Invalid verification code format. Expected a 6-digit numeric code."
+        );
     }
 
     #[test]
