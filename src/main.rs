@@ -7611,8 +7611,15 @@ mod tests {
 
         match cli.command {
             Some(Commands::VerifyOwner { owner_email, code }) => {
-                assert_eq!(owner_email, "user@example.com");
-                assert_eq!(code.as_deref(), Some("123456"));
+                assert_eq!(
+                    owner_email, "user@example.com",
+                    "owner_email should match the input"
+                );
+                assert_eq!(
+                    code.as_deref(),
+                    Some("123456"),
+                    "verification code should match the input"
+                );
             }
             other => panic!(
                 "expected VerifyOwner command, got {:?}",
@@ -7628,7 +7635,10 @@ mod tests {
 
         match cli.command {
             Some(Commands::VerifyOwner { owner_email, code }) => {
-                assert_eq!(owner_email, "user@example.com");
+                assert_eq!(
+                    owner_email, "user@example.com",
+                    "owner_email should match the input when using the alias"
+                );
                 assert!(code.is_none(), "verification code should be optional");
             }
             other => panic!(
