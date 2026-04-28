@@ -290,10 +290,10 @@ enum Commands {
     /// Recover a lost account
     AccountRecover {
         /// Account name
-        #[arg(long)]
+        #[arg(long, visible_alias = "account-name")]
         name: String,
         /// Recovery email address
-        #[arg(long)]
+        #[arg(long, visible_alias = "owner-email")]
         email: String,
         /// Recovery code (if already received)
         #[arg(long)]
@@ -302,7 +302,7 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
+        #[arg(long, visible_alias = "owner-email")]
         email: String,
         /// Verification code (if already received)
         #[arg(long)]
@@ -2230,6 +2230,28 @@ fn print_result(tool_name: &str, text: &str, human: bool) {
     }
 }
 
+fn account_recover_args(name: &str, email: &str, code: Option<&str>) -> Result<Value> {
+    let mut args = json!({"account_name": name, "owner_email": email});
+    if let Some(code) = code {
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid recovery code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
+    }
+    Ok(args)
+}
+
+fn verify_owner_args(email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"owner_email": email});
+    if let Some(code) = code {
+        args["code"] = json!(code);
+    }
+    args
+}
+
 const CLI_HELP_TEXT: &str = "\
 inboxapi — Email for your AI
 
@@ -2676,16 +2698,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
-            if let Some(code) = code {
-                let c = code.trim();
-                if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-                    return Err(anyhow!(
-                        "Invalid recovery code format. Expected a 6-digit numeric code."
-                    ));
-                }
-                args["code"] = json!(c);
-            }
+            let args = account_recover_args(name, email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -2702,10 +2715,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = verify_owner_args(email, code.as_deref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -4943,6 +4953,35 @@ mod tests {
                 "arguments": arguments
             }
         })
+    }
+
+    #[test]
+    fn verify_owner_args_use_owner_email_field() {
+        let args = verify_owner_args("owner@example.com", Some("123456"));
+
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert_eq!(args["code"], "123456");
+        assert!(args["email"].is_null());
+    }
+
+    #[test]
+    fn account_recover_args_use_api_field_names() {
+        let args = account_recover_args("test-agent", "owner@example.com", Some(" 123456 "))
+            .expect("valid recovery args");
+
+        assert_eq!(args["account_name"], "test-agent");
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert_eq!(args["code"], "123456");
+        assert!(args["name"].is_null());
+        assert!(args["email"].is_null());
+    }
+
+    #[test]
+    fn account_recover_args_reject_invalid_code() {
+        let err = account_recover_args("test-agent", "owner@example.com", Some("12ab56"))
+            .expect_err("invalid recovery code should fail");
+
+        assert!(err.to_string().contains("Invalid recovery code format"));
     }
 
     #[test]
