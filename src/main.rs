@@ -7552,8 +7552,15 @@ mod tests {
     fn test_verify_owner_payload_uses_api_owner_email_key() {
         let args = build_verify_owner_args("owner@example.com");
 
-        assert_eq!(args, json!({"owner_email": "owner@example.com"}));
-        assert!(args.get("email").is_none());
+        assert_eq!(
+            args,
+            json!({"owner_email": "owner@example.com"}),
+            "verify-owner payload should use the API's owner_email key"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "verify-owner payload should not include the legacy email key"
+        );
     }
 
     #[test]
@@ -7562,10 +7569,17 @@ mod tests {
 
         assert_eq!(
             args,
-            json!({"account_name": "agent-name", "owner_email": "owner@example.com"})
+            json!({"account_name": "agent-name", "owner_email": "owner@example.com"}),
+            "account-recover payload should use the API's account_name and owner_email keys"
         );
-        assert!(args.get("name").is_none());
-        assert!(args.get("email").is_none());
+        assert!(
+            args.get("name").is_none(),
+            "account-recover payload should not include the legacy name key"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "account-recover payload should not include the legacy email key"
+        );
     }
 
     #[test]
@@ -7576,8 +7590,14 @@ mod tests {
 
             match cli.command {
                 Some(Commands::VerifyOwner { owner_email, code }) => {
-                    assert_eq!(owner_email, "owner@example.com");
-                    assert!(code.is_none());
+                    assert_eq!(
+                        owner_email, "owner@example.com",
+                        "flag {flag} should populate verify-owner owner_email"
+                    );
+                    assert!(
+                        code.is_none(),
+                        "verify-owner should not infer a code when only {flag} is provided"
+                    );
                 }
                 other => panic!(
                     "expected VerifyOwner command, got {:?}",
@@ -7606,9 +7626,18 @@ mod tests {
                     owner_email,
                     code,
                 }) => {
-                    assert_eq!(name, "agent-name");
-                    assert_eq!(owner_email, "owner@example.com");
-                    assert!(code.is_none());
+                    assert_eq!(
+                        name, "agent-name",
+                        "account-recover should preserve the provided agent name for {flag}"
+                    );
+                    assert_eq!(
+                        owner_email, "owner@example.com",
+                        "flag {flag} should populate account-recover owner_email"
+                    );
+                    assert!(
+                        code.is_none(),
+                        "account-recover should not infer a code when only {flag} is provided"
+                    );
                 }
                 other => panic!(
                     "expected AccountRecover command, got {:?}",
