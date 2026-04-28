@@ -539,7 +539,7 @@ fn prompt_yes_no(prompt: &str) -> bool {
 fn add_six_digit_code_arg(args: &mut Value, code: &Option<String>, label: &str) -> Result<()> {
     if let Some(code) = code {
         let c = code.trim();
-        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+        if !(c.len() == 6 && c.as_bytes().iter().all(u8::is_ascii_digit)) {
             return Err(anyhow!(
                 "Invalid {label} code format. Expected a 6-digit numeric code."
             ));
