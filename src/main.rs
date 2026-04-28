@@ -4933,6 +4933,7 @@ fn verify_hashcash(stamp: &str, expected_bits: u32) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{Mutex, MutexGuard};
 
     fn make_creds(token: &str) -> Credentials {
         Credentials {
@@ -5418,16 +5419,24 @@ mod tests {
 
     // --- rewrite_tools_list tests ---
 
+    static ENV_VAR_LOCK: Mutex<()> = Mutex::new(());
+
     struct EnvVarGuard {
         key: &'static str,
         prev: Option<String>,
+        _lock: MutexGuard<'static, ()>,
     }
 
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
+            let lock = ENV_VAR_LOCK.lock().unwrap();
             let prev = std::env::var(key).ok();
             std::env::set_var(key, value);
-            Self { key, prev }
+            Self {
+                key,
+                prev,
+                _lock: lock,
+            }
         }
     }
 
