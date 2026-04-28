@@ -22,6 +22,18 @@ const MAX_BODY_FILE_BYTES: u64 = 20 * 1024 * 1024;
 /// Maximum size of an attachment download (100MB) to prevent memory exhaustion.
 const MAX_ATTACHMENT_DOWNLOAD_BYTES: u64 = 100 * 1024 * 1024;
 
+fn account_recover_args(account_name: &str, owner_email: &str) -> Value {
+    json!({"account_name": account_name, "owner_email": owner_email})
+}
+
+fn verify_owner_args(owner_email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"owner_email": owner_email});
+    if let Some(code) = code {
+        args["code"] = json!(code.trim());
+    }
+    args
+}
+
 #[derive(Parser)]
 #[command(name = "inboxapi", bin_name = "inboxapi")]
 #[command(version)]
@@ -290,11 +302,11 @@ enum Commands {
     /// Recover a lost account
     AccountRecover {
         /// Account name
-        #[arg(long)]
-        name: String,
+        #[arg(long, alias = "name")]
+        account_name: String,
         /// Recovery email address
-        #[arg(long)]
-        email: String,
+        #[arg(long, alias = "email")]
+        owner_email: String,
         /// Recovery code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -302,8 +314,8 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
-        email: String,
+        #[arg(long, alias = "email")]
+        owner_email: String,
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -2672,11 +2684,11 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             .await?;
         }
         Some(Commands::AccountRecover {
-            ref name,
-            ref email,
+            ref account_name,
+            ref owner_email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
+            let mut args = account_recover_args(account_name, owner_email);
             if let Some(code) = code {
                 let c = code.trim();
                 if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
@@ -2692,20 +2704,17 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             print_result("account_recover", &text, cli.human);
         }
         Some(Commands::VerifyOwner {
-            ref email,
+            ref owner_email,
             ref code,
         }) => {
             if !prompt_yes_no(&format!(
                 "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                email
+                owner_email
             )) {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = verify_owner_args(owner_email, code.as_deref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7595,6 +7604,157 @@ mod tests {
         );
         let err = result.err().unwrap();
         assert!(err.to_string().contains("--body-file"));
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_owner_email_and_email_alias() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "verify-owner",
+            "--owner-email",
+            "owner@example.com",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::VerifyOwner { owner_email, code }) => {
+                assert_eq!(
+                    owner_email, "owner@example.com",
+                    "owner_email should be populated from --owner-email"
+                );
+                assert!(
+                    code.is_none(),
+                    "code should be absent when --code is not provided"
+                );
+            }
+            other => panic!(
+                "expected VerifyOwner command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "verify-owner",
+            "--email",
+            "owner@example.com",
+            "--code",
+            "123456",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::VerifyOwner { owner_email, code }) => {
+                assert_eq!(
+                    owner_email, "owner@example.com",
+                    "owner_email should be populated from the legacy --email alias"
+                );
+                assert_eq!(
+                    code.as_deref(),
+                    Some("123456"),
+                    "code should be populated from --code"
+                );
+            }
+            other => panic!(
+                "expected VerifyOwner command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
+    fn test_account_recover_accepts_schema_names_and_legacy_aliases() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "account-recover",
+            "--account-name",
+            "agent-name",
+            "--owner-email",
+            "owner@example.com",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::AccountRecover {
+                account_name,
+                owner_email,
+                code,
+            }) => {
+                assert_eq!(
+                    account_name, "agent-name",
+                    "account_name should be populated from --account-name"
+                );
+                assert_eq!(
+                    owner_email, "owner@example.com",
+                    "owner_email should be populated from --owner-email"
+                );
+                assert!(
+                    code.is_none(),
+                    "code should be absent when --code is not provided"
+                );
+            }
+            other => panic!(
+                "expected AccountRecover command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "account-recover",
+            "--name",
+            "agent-name",
+            "--email",
+            "owner@example.com",
+            "--code",
+            "123456",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::AccountRecover {
+                account_name,
+                owner_email,
+                code,
+            }) => {
+                assert_eq!(
+                    account_name, "agent-name",
+                    "account_name should be populated from the legacy --name alias"
+                );
+                assert_eq!(
+                    owner_email, "owner@example.com",
+                    "owner_email should be populated from the legacy --email alias"
+                );
+                assert_eq!(
+                    code.as_deref(),
+                    Some("123456"),
+                    "code should be populated from --code"
+                );
+            }
+            other => panic!(
+                "expected AccountRecover command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
+    fn test_owner_tool_payload_keys_match_api_schema() {
+        assert_eq!(
+            verify_owner_args("owner@example.com", None),
+            json!({"owner_email": "owner@example.com"}),
+            "verify_owner payload should use the API schema owner_email key"
+        );
+        assert_eq!(
+            verify_owner_args("owner@example.com", Some(" 654321 ")),
+            json!({"owner_email": "owner@example.com", "code": "654321"}),
+            "verify_owner payload should trim the verification code"
+        );
+        assert_eq!(
+            account_recover_args("agent-name", "owner@example.com"),
+            json!({"account_name": "agent-name", "owner_email": "owner@example.com"}),
+            "account_recover payload should use the API schema keys"
+        );
     }
 
     // --- guess_content_type tests ---
