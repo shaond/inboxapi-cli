@@ -26,8 +26,12 @@ fn account_recover_args(account_name: &str, owner_email: &str) -> Value {
     json!({"account_name": account_name, "owner_email": owner_email})
 }
 
-fn verify_owner_args(owner_email: &str) -> Value {
-    json!({"owner_email": owner_email})
+fn verify_owner_args(owner_email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"owner_email": owner_email});
+    if let Some(code) = code {
+        args["code"] = json!(code.trim());
+    }
+    args
 }
 
 #[derive(Parser)]
@@ -2710,10 +2714,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = verify_owner_args(owner_email);
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = verify_owner_args(owner_email, code.as_deref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7754,9 +7755,14 @@ mod tests {
     #[test]
     fn test_owner_tool_payload_keys_match_api_schema() {
         assert_eq!(
-            verify_owner_args("owner@example.com"),
+            verify_owner_args("owner@example.com", None),
             json!({"owner_email": "owner@example.com"}),
             "verify_owner payload should use the API schema owner_email key"
+        );
+        assert_eq!(
+            verify_owner_args("owner@example.com", Some(" 654321 ")),
+            json!({"owner_email": "owner@example.com", "code": "654321"}),
+            "verify_owner payload should trim the verification code"
         );
         assert_eq!(
             account_recover_args("agent-name", "owner@example.com"),
