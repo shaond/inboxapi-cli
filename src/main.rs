@@ -7606,15 +7606,23 @@ mod tests {
     fn test_verify_owner_accepts_email_aliases() {
         for flag in ["--email", "--owner-email", "--owner_email"] {
             let cli = Cli::try_parse_from(["inboxapi", "verify-owner", flag, "user@example.com"])
-                .unwrap();
+                .unwrap_or_else(|err| {
+                    panic!("verify-owner should parse {flag} alias: {err}");
+                });
 
             match cli.command {
                 Some(Commands::VerifyOwner { email, code }) => {
-                    assert_eq!(email, "user@example.com");
-                    assert!(code.is_none());
+                    assert_eq!(
+                        email, "user@example.com",
+                        "verify-owner should assign email from {flag}"
+                    );
+                    assert!(
+                        code.is_none(),
+                        "verify-owner should leave code empty when omitted for {flag}"
+                    );
                 }
                 other => panic!(
-                    "expected VerifyOwner command, got {:?}",
+                    "expected VerifyOwner command for {flag}, got {:?}",
                     other.map(|_| "other")
                 ),
             }
@@ -7626,9 +7634,18 @@ mod tests {
         let code = "123456".to_string();
         let args = build_verify_owner_args("user@example.com", Some(&code));
 
-        assert_eq!(args["owner_email"], "user@example.com");
-        assert_eq!(args["code"], "123456");
-        assert!(args.get("email").is_none());
+        assert_eq!(
+            args["owner_email"], "user@example.com",
+            "verify_owner payload should use owner_email"
+        );
+        assert_eq!(
+            args["code"], "123456",
+            "verify_owner payload should include provided code"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "verify_owner payload should not include legacy email key"
+        );
     }
 
     // --- guess_content_type tests ---
