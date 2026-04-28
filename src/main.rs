@@ -290,11 +290,11 @@ enum Commands {
     /// Recover a lost account
     AccountRecover {
         /// Account name
-        #[arg(long)]
+        #[arg(long, alias = "account-name")]
         name: String,
         /// Recovery email address
-        #[arg(long)]
-        email: String,
+        #[arg(long = "owner-email", alias = "email", alias = "owner_email")]
+        owner_email: String,
         /// Recovery code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -302,8 +302,8 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
-        email: String,
+        #[arg(long = "owner-email", alias = "email", alias = "owner_email")]
+        owner_email: String,
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -1875,6 +1875,28 @@ fn build_send_email_args(
     args
 }
 
+fn build_account_recover_args(name: &str, owner_email: &str, code: Option<&str>) -> Result<Value> {
+    let mut args = json!({"account_name": name, "owner_email": owner_email});
+    if let Some(code) = code {
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid recovery code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
+    }
+    Ok(args)
+}
+
+fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"owner_email": owner_email});
+    if let Some(code) = code {
+        args["code"] = json!(code);
+    }
+    args
+}
+
 fn resolve_body_input(
     inline: Option<&str>,
     file: Option<&Path>,
@@ -2673,39 +2695,27 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         }
         Some(Commands::AccountRecover {
             ref name,
-            ref email,
+            ref owner_email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
-            if let Some(code) = code {
-                let c = code.trim();
-                if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-                    return Err(anyhow!(
-                        "Invalid recovery code format. Expected a 6-digit numeric code."
-                    ));
-                }
-                args["code"] = json!(c);
-            }
+            let args = build_account_recover_args(name, owner_email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
             print_result("account_recover", &text, cli.human);
         }
         Some(Commands::VerifyOwner {
-            ref email,
+            ref owner_email,
             ref code,
         }) => {
             if !prompt_yes_no(&format!(
                 "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                email
+                owner_email
             )) {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = build_verify_owner_args(owner_email, code.as_deref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -4099,7 +4109,20 @@ const AUTH_TOOL_OVERRIDE: &str = "Handled automatically by the CLI proxy. Do not
 
 const EXPOSE_INTERNAL_TOOLS_ENV: &str = "INBOXAPI_EXPOSE_INTERNAL_TOOLS";
 
+#[cfg(test)]
+thread_local! {
+    static EXPOSE_INTERNAL_TOOLS_TEST_OVERRIDE: std::cell::Cell<Option<bool>> =
+        std::cell::Cell::new(None);
+}
+
 fn expose_internal_tools() -> bool {
+    #[cfg(test)]
+    if let Some(value) =
+        EXPOSE_INTERNAL_TOOLS_TEST_OVERRIDE.with(|override_value| override_value.get())
+    {
+        return value;
+    }
+
     std::env::var(EXPOSE_INTERNAL_TOOLS_ENV)
         .ok()
         .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
@@ -5380,30 +5403,28 @@ mod tests {
     // --- rewrite_tools_list tests ---
 
     struct EnvVarGuard {
-        key: &'static str,
-        prev: Option<String>,
+        prev: Option<bool>,
     }
 
     impl EnvVarGuard {
-        fn set(key: &'static str, value: &str) -> Self {
-            let prev = std::env::var(key).ok();
-            std::env::set_var(key, value);
-            Self { key, prev }
+        fn set_expose_internal_tools(value: bool) -> Self {
+            let prev =
+                EXPOSE_INTERNAL_TOOLS_TEST_OVERRIDE.with(|override_value| override_value.get());
+            EXPOSE_INTERNAL_TOOLS_TEST_OVERRIDE
+                .with(|override_value| override_value.set(Some(value)));
+            Self { prev }
         }
     }
 
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
-            if let Some(ref v) = self.prev {
-                std::env::set_var(self.key, v);
-            } else {
-                std::env::remove_var(self.key);
-            }
+            EXPOSE_INTERNAL_TOOLS_TEST_OVERRIDE
+                .with(|override_value| override_value.set(self.prev));
         }
     }
 
     fn expose_internal_tools_for_test() -> EnvVarGuard {
-        EnvVarGuard::set(EXPOSE_INTERNAL_TOOLS_ENV, "1")
+        EnvVarGuard::set_expose_internal_tools(true)
     }
 
     fn make_tools_list_response(tools: Vec<Value>) -> String {
@@ -7574,6 +7595,84 @@ mod tests {
                 other.map(|_| "other")
             ),
         }
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_owner_email_flag_and_email_aliases() {
+        for flag in ["--owner-email", "--email", "--owner_email"] {
+            let cli = Cli::try_parse_from(["inboxapi", "verify-owner", flag, "user@example.com"])
+                .unwrap();
+
+            match cli.command {
+                Some(Commands::VerifyOwner { owner_email, code }) => {
+                    assert_eq!(owner_email, "user@example.com");
+                    assert!(code.is_none());
+                }
+                other => panic!(
+                    "expected VerifyOwner command for {flag}, got {:?}",
+                    other.map(|_| "other")
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_account_recover_accepts_owner_email_alias() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "account-recover",
+            "--account-name",
+            "agent",
+            "--email",
+            "owner@example.com",
+            "--code",
+            "123456",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::AccountRecover {
+                name,
+                owner_email,
+                code,
+            }) => {
+                assert_eq!(name, "agent");
+                assert_eq!(owner_email, "owner@example.com");
+                assert_eq!(code.as_deref(), Some("123456"));
+            }
+            other => panic!(
+                "expected AccountRecover command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
+    fn test_account_recover_payload_uses_api_field_names() {
+        let args =
+            build_account_recover_args("agent", "owner@example.com", Some(" 123456 ")).unwrap();
+
+        assert_eq!(
+            args,
+            json!({
+                "account_name": "agent",
+                "owner_email": "owner@example.com",
+                "code": "123456"
+            })
+        );
+    }
+
+    #[test]
+    fn test_verify_owner_payload_uses_owner_email() {
+        let args = build_verify_owner_args("owner@example.com", Some("654321"));
+
+        assert_eq!(
+            args,
+            json!({
+                "owner_email": "owner@example.com",
+                "code": "654321"
+            })
+        );
     }
 
     #[test]
