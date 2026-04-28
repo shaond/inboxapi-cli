@@ -2693,7 +2693,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let args = verify_owner_args(email, code.as_deref());
+            let args = verify_owner_args(email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -4136,12 +4136,18 @@ fn account_recover_args(name: &str, email: &str, code: Option<&str>) -> Result<V
     Ok(args)
 }
 
-fn verify_owner_args(email: &str, code: Option<&str>) -> Value {
+fn verify_owner_args(email: &str, code: Option<&str>) -> Result<Value> {
     let mut args = json!({"owner_email": email});
     if let Some(code) = code {
-        args["code"] = json!(code);
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid verification code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
     }
-    args
+    Ok(args)
 }
 
 const AUTH_TOOLS_TO_REWRITE: &[&str] = &[
@@ -5099,7 +5105,7 @@ mod tests {
 
     #[test]
     fn verify_owner_args_use_api_field_names() {
-        let args = verify_owner_args("owner@example.com", Some("123456"));
+        let args = verify_owner_args("owner@example.com", Some(" 123456 ")).unwrap();
 
         assert_eq!(
             args,
@@ -5109,6 +5115,13 @@ mod tests {
             })
         );
         assert!(args.get("email").is_none());
+    }
+
+    #[test]
+    fn verify_owner_args_reject_invalid_code() {
+        let err = verify_owner_args("owner@example.com", Some("12345a")).unwrap_err();
+
+        assert!(err.to_string().contains("Invalid verification code format"));
     }
 
     #[test]
