@@ -2297,24 +2297,18 @@ async fn run_simple_command(
     Ok(())
 }
 
-fn account_recover_args(name: &str, email: &str, code: Option<&String>) -> Result<Value> {
+fn account_recover_args(name: &str, email: &str, code: Option<&String>) -> Value {
     let mut args = json!({"account_name": name, "owner_email": email});
     if let Some(code) = code {
-        let c = code.trim();
-        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-            return Err(anyhow!(
-                "Invalid recovery code format. Expected a 6-digit numeric code."
-            ));
-        }
-        args["code"] = json!(c);
+        args["code"] = json!(code.trim());
     }
-    Ok(args)
+    args
 }
 
 fn verify_owner_args(owner_email: &str, code: Option<&String>) -> Value {
     let mut args = json!({"owner_email": owner_email});
     if let Some(code) = code {
-        args["code"] = json!(code);
+        args["code"] = json!(code.trim());
     }
     args
 }
@@ -2698,7 +2692,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref email,
             ref code,
         }) => {
-            let args = account_recover_args(name, email, code.as_ref())?;
+            let args = account_recover_args(name, email, code.as_ref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -5076,15 +5070,15 @@ mod tests {
 
     #[test]
     fn account_recover_args_uses_api_field_names() {
-        let code = " 123456 ".to_string();
-        let args = account_recover_args("alice", "alice@example.com", Some(&code)).unwrap();
+        let code = " abc-123 ".to_string();
+        let args = account_recover_args("alice", "alice@example.com", Some(&code));
 
         assert_eq!(
             args,
             json!({
                 "account_name": "alice",
                 "owner_email": "alice@example.com",
-                "code": "123456"
+                "code": "abc-123"
             })
         );
         assert!(args.get("name").is_none());
@@ -5093,7 +5087,7 @@ mod tests {
 
     #[test]
     fn verify_owner_args_uses_owner_email_api_field() {
-        let code = "654321".to_string();
+        let code = " 654321 ".to_string();
         let args = verify_owner_args("owner@example.com", Some(&code));
 
         assert_eq!(
