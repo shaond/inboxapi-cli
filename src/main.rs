@@ -302,7 +302,7 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
+        #[arg(long, alias = "owner-email", alias = "owner_email")]
         email: String,
         /// Verification code (if already received)
         #[arg(long)]
@@ -1875,6 +1875,14 @@ fn build_send_email_args(
     args
 }
 
+fn build_verify_owner_args(email: &str, code: Option<&String>) -> Value {
+    let mut args = json!({"owner_email": email});
+    if let Some(code) = code {
+        args["code"] = json!(code);
+    }
+    args
+}
+
 fn resolve_body_input(
     inline: Option<&str>,
     file: Option<&Path>,
@@ -2702,10 +2710,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = build_verify_owner_args(email, code.as_ref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7595,6 +7600,35 @@ mod tests {
         );
         let err = result.err().unwrap();
         assert!(err.to_string().contains("--body-file"));
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_email_aliases() {
+        for flag in ["--email", "--owner-email", "--owner_email"] {
+            let cli = Cli::try_parse_from(["inboxapi", "verify-owner", flag, "user@example.com"])
+                .unwrap();
+
+            match cli.command {
+                Some(Commands::VerifyOwner { email, code }) => {
+                    assert_eq!(email, "user@example.com");
+                    assert!(code.is_none());
+                }
+                other => panic!(
+                    "expected VerifyOwner command, got {:?}",
+                    other.map(|_| "other")
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_build_verify_owner_args_uses_owner_email_key() {
+        let code = "123456".to_string();
+        let args = build_verify_owner_args("user@example.com", Some(&code));
+
+        assert_eq!(args["owner_email"], "user@example.com");
+        assert_eq!(args["code"], "123456");
+        assert!(args.get("email").is_none());
     }
 
     // --- guess_content_type tests ---
