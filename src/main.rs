@@ -290,7 +290,7 @@ enum Commands {
     /// Recover a lost account
     AccountRecover {
         /// Account name
-        #[arg(long = "account-name", alias = "name")]
+        #[arg(long = "account-name", alias = "name", alias = "account_name")]
         account_name: String,
         /// Recovery email address
         #[arg(long = "owner-email", alias = "email", alias = "owner_email")]
@@ -2230,22 +2230,12 @@ fn print_result(tool_name: &str, text: &str, human: bool) {
     }
 }
 
-fn account_recover_args(
-    account_name: &str,
-    owner_email: &str,
-    code: Option<&String>,
-) -> Result<Value> {
+fn account_recover_args(account_name: &str, owner_email: &str, code: Option<&String>) -> Value {
     let mut args = json!({"account_name": account_name, "owner_email": owner_email});
     if let Some(code) = code {
-        let c = code.trim();
-        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-            return Err(anyhow!(
-                "Invalid recovery code format. Expected a 6-digit numeric code."
-            ));
-        }
-        args["code"] = json!(c);
+        args["code"] = json!(code);
     }
-    Ok(args)
+    args
 }
 
 fn verify_owner_args(owner_email: &str, code: Option<&String>) -> Value {
@@ -2702,7 +2692,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref owner_email,
             ref code,
         }) => {
-            let args = account_recover_args(account_name, owner_email, code.as_ref())?;
+            let args = account_recover_args(account_name, owner_email, code.as_ref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7718,6 +7708,32 @@ mod tests {
     }
 
     #[test]
+    fn test_account_recover_accepts_underscored_account_name_alias() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "account-recover",
+            "--account_name",
+            "test-agent",
+            "--owner-email",
+            "owner@example.com",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::AccountRecover { account_name, .. }) => {
+                assert_eq!(
+                    account_name, "test-agent",
+                    "account_name alias should map to account_name"
+                );
+            }
+            other => panic!(
+                "expected AccountRecover command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
     fn test_verify_owner_args_use_owner_email_key() {
         let code = "123456".to_string();
         let args = verify_owner_args("owner@example.com", Some(&code));
@@ -7731,19 +7747,26 @@ mod tests {
 
     #[test]
     fn test_account_recover_args_use_api_keys() {
-        let code = "123456".to_string();
-        let args = account_recover_args("test-agent", "owner@example.com", Some(&code)).unwrap();
+        let code = " 123abc ".to_string();
+        let args = account_recover_args("test-agent", "owner@example.com", Some(&code));
 
         assert_eq!(
             args,
             json!({
                 "account_name": "test-agent",
                 "owner_email": "owner@example.com",
-                "code": "123456"
-            })
+                "code": " 123abc "
+            }),
+            "account recovery args should preserve server-owned fields"
         );
-        assert!(args.get("name").is_none());
-        assert!(args.get("email").is_none());
+        assert!(
+            args.get("name").is_none(),
+            "legacy name key should be absent"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "legacy email key should be absent"
+        );
     }
 
     // --- guess_content_type tests ---
