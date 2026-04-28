@@ -7617,8 +7617,14 @@ mod tests {
 
         match cli.command {
             Some(Commands::VerifyOwner { owner_email, code }) => {
-                assert_eq!(owner_email, "owner@example.com");
-                assert!(code.is_none());
+                assert_eq!(
+                    owner_email, "owner@example.com",
+                    "owner_email should be populated from --owner-email"
+                );
+                assert!(
+                    code.is_none(),
+                    "code should be absent when --code is not provided"
+                );
             }
             other => panic!(
                 "expected VerifyOwner command, got {:?}",
@@ -7638,8 +7644,15 @@ mod tests {
 
         match cli.command {
             Some(Commands::VerifyOwner { owner_email, code }) => {
-                assert_eq!(owner_email, "owner@example.com");
-                assert_eq!(code.as_deref(), Some("123456"));
+                assert_eq!(
+                    owner_email, "owner@example.com",
+                    "owner_email should be populated from the legacy --email alias"
+                );
+                assert_eq!(
+                    code.as_deref(),
+                    Some("123456"),
+                    "code should be populated from --code"
+                );
             }
             other => panic!(
                 "expected VerifyOwner command, got {:?}",
@@ -7666,9 +7679,18 @@ mod tests {
                 owner_email,
                 code,
             }) => {
-                assert_eq!(account_name, "agent-name");
-                assert_eq!(owner_email, "owner@example.com");
-                assert!(code.is_none());
+                assert_eq!(
+                    account_name, "agent-name",
+                    "account_name should be populated from --account-name"
+                );
+                assert_eq!(
+                    owner_email, "owner@example.com",
+                    "owner_email should be populated from --owner-email"
+                );
+                assert!(
+                    code.is_none(),
+                    "code should be absent when --code is not provided"
+                );
             }
             other => panic!(
                 "expected AccountRecover command, got {:?}",
@@ -7694,9 +7716,19 @@ mod tests {
                 owner_email,
                 code,
             }) => {
-                assert_eq!(account_name, "agent-name");
-                assert_eq!(owner_email, "owner@example.com");
-                assert_eq!(code.as_deref(), Some("123456"));
+                assert_eq!(
+                    account_name, "agent-name",
+                    "account_name should be populated from the legacy --name alias"
+                );
+                assert_eq!(
+                    owner_email, "owner@example.com",
+                    "owner_email should be populated from the legacy --email alias"
+                );
+                assert_eq!(
+                    code.as_deref(),
+                    Some("123456"),
+                    "code should be populated from --code"
+                );
             }
             other => panic!(
                 "expected AccountRecover command, got {:?}",
@@ -7709,11 +7741,13 @@ mod tests {
     fn test_owner_tool_payload_keys_match_api_schema() {
         assert_eq!(
             verify_owner_args("owner@example.com"),
-            json!({"owner_email": "owner@example.com"})
+            json!({"owner_email": "owner@example.com"}),
+            "verify_owner payload should use the API schema owner_email key"
         );
         assert_eq!(
             account_recover_args("agent-name", "owner@example.com"),
-            json!({"account_name": "agent-name", "owner_email": "owner@example.com"})
+            json!({"account_name": "agent-name", "owner_email": "owner@example.com"}),
+            "account_recover payload should use the API schema keys"
         );
     }
 
