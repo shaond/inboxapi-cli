@@ -7597,8 +7597,15 @@ mod tests {
 
         match cli.command {
             Some(Commands::VerifyOwner { owner_email, code }) => {
-                assert_eq!(owner_email, "user@example.com");
-                assert_eq!(code.as_deref(), Some("123456"));
+                assert_eq!(
+                    owner_email, "user@example.com",
+                    "expected --owner-email to populate owner_email"
+                );
+                assert_eq!(
+                    code.as_deref(),
+                    Some("123456"),
+                    "expected --code to populate verify-owner code"
+                );
             }
             other => panic!(
                 "expected VerifyOwner command, got {:?}",
@@ -7614,8 +7621,14 @@ mod tests {
 
         match cli.command {
             Some(Commands::VerifyOwner { owner_email, code }) => {
-                assert_eq!(owner_email, "user@example.com");
-                assert!(code.is_none());
+                assert_eq!(
+                    owner_email, "user@example.com",
+                    "expected legacy --email alias to populate owner_email"
+                );
+                assert!(
+                    code.is_none(),
+                    "expected code to be absent when --code is not provided"
+                );
             }
             other => panic!(
                 "expected VerifyOwner command, got {:?}",
@@ -7628,9 +7641,18 @@ mod tests {
     fn test_build_verify_owner_args_uses_owner_email_key() {
         let args = build_verify_owner_args("user@example.com", Some("123456"));
 
-        assert_eq!(args["owner_email"], "user@example.com");
-        assert_eq!(args["code"], "123456");
-        assert!(args.get("email").is_none());
+        assert_eq!(
+            args["owner_email"], "user@example.com",
+            "expected verify_owner payload to use owner_email key"
+        );
+        assert_eq!(
+            args["code"], "123456",
+            "expected verify_owner payload to include provided code"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "expected legacy email key to be omitted from verify_owner payload"
+        );
     }
 
     #[test]
