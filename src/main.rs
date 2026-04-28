@@ -302,8 +302,8 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
-        email: String,
+        #[arg(long = "owner-email", alias = "email", visible_alias = "email")]
+        owner_email: String,
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -1658,6 +1658,28 @@ fn extract_tool_result_text(response: &Value) -> Result<String> {
         .ok_or_else(|| anyhow!("No text content in response"))
 }
 
+fn build_account_recover_args(name: &str, email: &str, code: Option<&str>) -> Result<Value> {
+    let mut args = json!({"account_name": name, "owner_email": email});
+    if let Some(code) = code {
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid recovery code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
+    }
+    Ok(args)
+}
+
+fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"owner_email": owner_email});
+    if let Some(code) = code {
+        args["code"] = json!(code);
+    }
+    args
+}
+
 /// Split a comma-separated string into a Vec of trimmed strings.
 fn split_csv(s: &str) -> Vec<String> {
     s.split(',')
@@ -2676,36 +2698,24 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
-            if let Some(code) = code {
-                let c = code.trim();
-                if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-                    return Err(anyhow!(
-                        "Invalid recovery code format. Expected a 6-digit numeric code."
-                    ));
-                }
-                args["code"] = json!(c);
-            }
+            let args = build_account_recover_args(name, email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
             print_result("account_recover", &text, cli.human);
         }
         Some(Commands::VerifyOwner {
-            ref email,
+            ref owner_email,
             ref code,
         }) => {
             if !prompt_yes_no(&format!(
                 "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                email
+                owner_email
             )) {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = build_verify_owner_args(owner_email, code.as_deref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -5062,6 +5072,35 @@ mod tests {
         inject_token(&mut msg, &make_creds("test-token"));
 
         assert!(msg["params"]["arguments"]["token"].is_null());
+    }
+
+    #[test]
+    fn account_recover_args_use_api_field_names() {
+        let args = build_account_recover_args("test", "owner@example.com", Some(" 123456 "))
+            .expect("valid recovery args");
+
+        assert_eq!(args["account_name"], "test");
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert_eq!(args["code"], "123456");
+        assert!(args["name"].is_null());
+        assert!(args["email"].is_null());
+    }
+
+    #[test]
+    fn account_recover_args_reject_invalid_code() {
+        let err = build_account_recover_args("test", "owner@example.com", Some("abc123"))
+            .expect_err("invalid code should fail");
+
+        assert!(err.to_string().contains("Invalid recovery code format"));
+    }
+
+    #[test]
+    fn verify_owner_args_use_api_field_names() {
+        let args = build_verify_owner_args("owner@example.com", Some("654321"));
+
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert_eq!(args["code"], "654321");
+        assert!(args["email"].is_null());
     }
 
     #[test]
