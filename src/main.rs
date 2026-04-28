@@ -2230,19 +2230,6 @@ fn print_result(tool_name: &str, text: &str, human: bool) {
     }
 }
 
-fn account_recover_args(account_name: &str, owner_email: &str) -> Value {
-    json!({
-        "account_name": account_name,
-        "owner_email": owner_email,
-    })
-}
-
-fn verify_owner_args(owner_email: &str) -> Value {
-    json!({
-        "owner_email": owner_email,
-    })
-}
-
 const CLI_HELP_TEXT: &str = "\
 inboxapi — Email for your AI
 
@@ -2310,6 +2297,19 @@ async fn run_simple_command(
     let text = extract_tool_result_text(&response)?;
     print_result(tool_name, &text, human);
     Ok(())
+}
+
+fn account_recover_args(account_name: &str, owner_email: &str) -> Value {
+    json!({
+        "account_name": account_name,
+        "owner_email": owner_email,
+    })
+}
+
+fn verify_owner_args(owner_email: &str) -> Value {
+    json!({
+        "owner_email": owner_email,
+    })
 }
 
 /// Run a CLI subcommand that calls an MCP tool.
