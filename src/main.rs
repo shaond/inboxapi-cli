@@ -5467,14 +5467,28 @@ mod tests {
             "blocked tool should be removed"
         );
         // get_emails now has untrusted content warning prepended
-        let get_emails_desc = tools[0]["description"].as_str().unwrap();
+        let get_emails_desc = tools
+            .iter()
+            .find(|t| t["name"].as_str() == Some("get_emails"))
+            .and_then(|t| t["description"].as_str())
+            .unwrap();
         assert!(
             get_emails_desc.starts_with(UNTRUSTED_CONTENT_WARNING),
             "get_emails should have untrusted warning"
         );
         assert!(get_emails_desc.contains("Fetch emails from your inbox"));
-        assert_eq!(tools[1]["description"], "Show help text");
-        assert_eq!(tools[2]["description"], AUTH_TOOL_OVERRIDE); // account_create
+        let help_desc = tools
+            .iter()
+            .find(|t| t["name"].as_str() == Some("help"))
+            .and_then(|t| t["description"].as_str())
+            .unwrap();
+        assert_eq!(help_desc, "Show help text");
+        let account_create_desc = tools
+            .iter()
+            .find(|t| t["name"].as_str() == Some("account_create"))
+            .and_then(|t| t["description"].as_str())
+            .unwrap();
+        assert_eq!(account_create_desc, AUTH_TOOL_OVERRIDE);
     }
 
     #[test]
