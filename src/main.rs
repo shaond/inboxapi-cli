@@ -302,7 +302,7 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
+        #[arg(long, visible_alias = "owner-email", alias = "owner_email")]
         email: String,
         /// Verification code (if already received)
         #[arg(long)]
@@ -2676,16 +2676,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
-            if let Some(code) = code {
-                let c = code.trim();
-                if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-                    return Err(anyhow!(
-                        "Invalid recovery code format. Expected a 6-digit numeric code."
-                    ));
-                }
-                args["code"] = json!(c);
-            }
+            let args = account_recover_args(name, email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -2702,10 +2693,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = verify_owner_args(email, code.as_deref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -4134,6 +4122,28 @@ fn is_internal_tool(name: &str) -> bool {
     INTERNAL_TOOLS.contains(&name)
 }
 
+fn account_recover_args(name: &str, email: &str, code: Option<&str>) -> Result<Value> {
+    let mut args = json!({"account_name": name, "owner_email": email});
+    if let Some(code) = code {
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid recovery code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
+    }
+    Ok(args)
+}
+
+fn verify_owner_args(email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"owner_email": email});
+    if let Some(code) = code {
+        args["code"] = json!(code);
+    }
+    args
+}
+
 const AUTH_TOOLS_TO_REWRITE: &[&str] = &[
     "account_create",
     "auth_exchange",
@@ -5062,6 +5072,43 @@ mod tests {
         inject_token(&mut msg, &make_creds("test-token"));
 
         assert!(msg["params"]["arguments"]["token"].is_null());
+    }
+
+    #[test]
+    fn account_recover_args_use_api_field_names() {
+        let args = account_recover_args("agent", "owner@example.com", Some(" 123456 ")).unwrap();
+
+        assert_eq!(
+            args,
+            json!({
+                "account_name": "agent",
+                "owner_email": "owner@example.com",
+                "code": "123456"
+            })
+        );
+        assert!(args.get("name").is_none());
+        assert!(args.get("email").is_none());
+    }
+
+    #[test]
+    fn account_recover_args_reject_invalid_code() {
+        let err = account_recover_args("agent", "owner@example.com", Some("abc123")).unwrap_err();
+
+        assert!(err.to_string().contains("Invalid recovery code format"));
+    }
+
+    #[test]
+    fn verify_owner_args_use_api_field_names() {
+        let args = verify_owner_args("owner@example.com", Some("123456"));
+
+        assert_eq!(
+            args,
+            json!({
+                "owner_email": "owner@example.com",
+                "code": "123456"
+            })
+        );
+        assert!(args.get("email").is_none());
     }
 
     #[test]
@@ -7595,6 +7642,32 @@ mod tests {
         );
         let err = result.err().unwrap();
         assert!(err.to_string().contains("--body-file"));
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_owner_email_aliases() {
+        for flag in ["--email", "--owner-email", "--owner_email"] {
+            let cli = Cli::try_parse_from([
+                "inboxapi",
+                "verify-owner",
+                flag,
+                "owner@example.com",
+                "--code",
+                "123456",
+            ])
+            .unwrap();
+
+            match cli.command {
+                Some(Commands::VerifyOwner { email, code }) => {
+                    assert_eq!(email, "owner@example.com");
+                    assert_eq!(code.as_deref(), Some("123456"));
+                }
+                other => panic!(
+                    "expected VerifyOwner command, got {:?}",
+                    other.map(|_| "other")
+                ),
+            }
+        }
     }
 
     // --- guess_content_type tests ---
