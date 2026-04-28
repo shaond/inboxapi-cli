@@ -290,10 +290,10 @@ enum Commands {
     /// Recover a lost account
     AccountRecover {
         /// Account name
-        #[arg(long = "name", alias = "account-name", alias = "account_name")]
+        #[arg(long = "account-name", alias = "name", alias = "account_name")]
         account_name: String,
         /// Recovery email address
-        #[arg(long = "email", alias = "owner-email", alias = "owner_email")]
+        #[arg(long = "owner-email", alias = "email", alias = "owner_email")]
         owner_email: String,
         /// Recovery code (if already received)
         #[arg(long)]
@@ -1893,12 +1893,18 @@ fn build_account_recover_args(
     Ok(args)
 }
 
-fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Value {
+fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Result<Value> {
     let mut args = json!({"owner_email": owner_email});
     if let Some(code) = code {
-        args["code"] = json!(code);
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid verification code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
     }
-    args
+    Ok(args)
 }
 
 fn resolve_body_input(
@@ -2719,7 +2725,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let args = build_verify_owner_args(owner_email, code.as_deref());
+            let args = build_verify_owner_args(owner_email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7780,11 +7786,18 @@ mod tests {
 
     #[test]
     fn test_verify_owner_args_use_owner_email_key() {
-        let args = build_verify_owner_args("owner@example.com", Some("123456"));
+        let args = build_verify_owner_args("owner@example.com", Some(" 123456 ")).unwrap();
 
         assert_eq!(args["owner_email"], "owner@example.com");
         assert_eq!(args["code"], "123456");
         assert!(args.get("email").is_none());
+    }
+
+    #[test]
+    fn test_verify_owner_args_reject_invalid_code() {
+        let err = build_verify_owner_args("owner@example.com", Some("abc123")).unwrap_err();
+
+        assert!(err.to_string().contains("Invalid verification code format"));
     }
 
     #[test]
