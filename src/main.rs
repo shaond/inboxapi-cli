@@ -2299,17 +2299,43 @@ async fn run_simple_command(
     Ok(())
 }
 
-fn account_recover_args(account_name: &str, owner_email: &str) -> Value {
-    json!({
-        "account_name": account_name,
-        "owner_email": owner_email,
+fn six_digit_code(code: Option<&str>, kind: &str) -> Result<Option<String>> {
+    code.map(|code| {
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid {} code format. Expected a 6-digit numeric code.",
+                kind
+            ));
+        }
+        Ok(c.to_string())
     })
+    .transpose()
 }
 
-fn verify_owner_args(owner_email: &str) -> Value {
-    json!({
+fn account_recover_args(
+    account_name: &str,
+    owner_email: &str,
+    code: Option<&str>,
+) -> Result<Value> {
+    let mut args = json!({
+        "account_name": account_name,
         "owner_email": owner_email,
-    })
+    });
+    if let Some(code) = six_digit_code(code, "recovery")? {
+        args["code"] = json!(code);
+    }
+    Ok(args)
+}
+
+fn verify_owner_args(owner_email: &str, code: Option<&str>) -> Result<Value> {
+    let mut args = json!({
+        "owner_email": owner_email,
+    });
+    if let Some(code) = six_digit_code(code, "verification")? {
+        args["code"] = json!(code);
+    }
+    Ok(args)
 }
 
 /// Run a CLI subcommand that calls an MCP tool.
@@ -2691,16 +2717,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref owner_email,
             ref code,
         }) => {
-            let mut args = account_recover_args(account_name, owner_email);
-            if let Some(code) = code {
-                let c = code.trim();
-                if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-                    return Err(anyhow!(
-                        "Invalid recovery code format. Expected a 6-digit numeric code."
-                    ));
-                }
-                args["code"] = json!(c);
-            }
+            let args = account_recover_args(account_name, owner_email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -2717,10 +2734,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = verify_owner_args(owner_email);
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = verify_owner_args(owner_email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7633,10 +7647,23 @@ mod tests {
 
     #[test]
     fn test_verify_owner_args_use_api_field_names() {
-        let args = verify_owner_args("owner@example.com");
+        let args = verify_owner_args("owner@example.com", None).expect("missing code is valid");
 
         assert_eq!(args["owner_email"], "owner@example.com");
         assert!(args["email"].is_null());
+    }
+
+    #[test]
+    fn test_verify_owner_args_trim_and_validate_code() {
+        let args = verify_owner_args("owner@example.com", Some(" 654321 "))
+            .expect("valid verification code should not fail");
+
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert_eq!(args["code"], "654321");
+
+        let err = verify_owner_args("owner@example.com", Some("65432a"))
+            .expect_err("non-numeric verification code should fail");
+        assert!(err.to_string().contains("Invalid verification code format"));
     }
 
     #[test]
@@ -7678,12 +7705,22 @@ mod tests {
 
     #[test]
     fn test_account_recover_args_use_api_field_names() {
-        let args = account_recover_args("test-agent", "owner@example.com");
+        let args = account_recover_args("test-agent", "owner@example.com", Some(" 123456 "))
+            .expect("valid recovery code should not fail");
 
         assert_eq!(args["account_name"], "test-agent");
         assert_eq!(args["owner_email"], "owner@example.com");
+        assert_eq!(args["code"], "123456");
         assert!(args["name"].is_null());
         assert!(args["email"].is_null());
+    }
+
+    #[test]
+    fn test_account_recover_args_reject_invalid_code() {
+        let err = account_recover_args("test-agent", "owner@example.com", Some("12345"))
+            .expect_err("short recovery code should fail");
+
+        assert!(err.to_string().contains("Invalid recovery code format"));
     }
 
     // --- guess_content_type tests ---
