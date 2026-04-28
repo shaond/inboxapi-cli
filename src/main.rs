@@ -1658,8 +1658,12 @@ fn extract_tool_result_text(response: &Value) -> Result<String> {
         .ok_or_else(|| anyhow!("No text content in response"))
 }
 
-fn build_account_recover_args(name: &str, email: &str, code: Option<&str>) -> Result<Value> {
-    let mut args = json!({"account_name": name, "owner_email": email});
+fn build_account_recover_args(
+    account_name: &str,
+    owner_email: &str,
+    code: Option<&str>,
+) -> Result<Value> {
+    let mut args = json!({"account_name": account_name, "owner_email": owner_email});
     if let Some(code) = code {
         let c = code.trim();
         if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
@@ -1675,7 +1679,7 @@ fn build_account_recover_args(name: &str, email: &str, code: Option<&str>) -> Re
 fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Value {
     let mut args = json!({"owner_email": owner_email});
     if let Some(code) = code {
-        args["code"] = json!(code);
+        args["code"] = json!(code.trim());
     }
     args
 }
@@ -5096,7 +5100,7 @@ mod tests {
 
     #[test]
     fn verify_owner_args_use_api_field_names() {
-        let args = build_verify_owner_args("owner@example.com", Some("654321"));
+        let args = build_verify_owner_args("owner@example.com", Some(" 654321 "));
 
         assert_eq!(args["owner_email"], "owner@example.com");
         assert_eq!(args["code"], "654321");
