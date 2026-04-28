@@ -302,8 +302,8 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
-        email: String,
+        #[arg(long, visible_alias = "email")]
+        owner_email: String,
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -2692,17 +2692,17 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             print_result("account_recover", &text, cli.human);
         }
         Some(Commands::VerifyOwner {
-            ref email,
+            ref owner_email,
             ref code,
         }) => {
             if !prompt_yes_no(&format!(
                 "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                email
+                owner_email
             )) {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
+            let mut args = json!({"owner_email": owner_email});
             if let Some(code) = code {
                 args["code"] = json!(code);
             }
@@ -7595,6 +7595,47 @@ mod tests {
         );
         let err = result.err().unwrap();
         assert!(err.to_string().contains("--body-file"));
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_owner_email_flag() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "verify-owner",
+            "--owner-email",
+            "user@example.com",
+            "--code",
+            "123456",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::VerifyOwner { owner_email, code }) => {
+                assert_eq!(owner_email, "user@example.com");
+                assert_eq!(code.as_deref(), Some("123456"));
+            }
+            other => panic!(
+                "expected VerifyOwner command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_email_alias() {
+        let cli = Cli::try_parse_from(["inboxapi", "verify-owner", "--email", "user@example.com"])
+            .unwrap();
+
+        match cli.command {
+            Some(Commands::VerifyOwner { owner_email, code }) => {
+                assert_eq!(owner_email, "user@example.com");
+                assert!(code.is_none(), "verification code should be optional");
+            }
+            other => panic!(
+                "expected VerifyOwner command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
     }
 
     // --- guess_content_type tests ---
