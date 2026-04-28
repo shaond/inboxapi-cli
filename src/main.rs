@@ -290,11 +290,11 @@ enum Commands {
     /// Recover a lost account
     AccountRecover {
         /// Account name
-        #[arg(long)]
-        name: String,
+        #[arg(long = "name")]
+        account_name: String,
         /// Recovery email address
-        #[arg(long)]
-        email: String,
+        #[arg(long = "email", alias = "owner-email", alias = "owner_email")]
+        owner_email: String,
         /// Recovery code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -302,8 +302,8 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
-        email: String,
+        #[arg(long = "owner-email", alias = "email", alias = "owner_email")]
+        owner_email: String,
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -2672,11 +2672,11 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             .await?;
         }
         Some(Commands::AccountRecover {
-            ref name,
-            ref email,
+            ref account_name,
+            ref owner_email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
+            let mut args = json!({"account_name": account_name, "owner_email": owner_email});
             if let Some(code) = code {
                 let c = code.trim();
                 if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
@@ -2692,17 +2692,17 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             print_result("account_recover", &text, cli.human);
         }
         Some(Commands::VerifyOwner {
-            ref email,
+            ref owner_email,
             ref code,
         }) => {
             if !prompt_yes_no(&format!(
                 "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                email
+                owner_email
             )) {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
+            let mut args = json!({"owner_email": owner_email});
             if let Some(code) = code {
                 args["code"] = json!(code);
             }
@@ -7571,6 +7571,83 @@ mod tests {
             }
             other => panic!(
                 "expected SendEmail command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_owner_email_flag() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "verify-owner",
+            "--owner-email",
+            "owner@example.com",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::VerifyOwner {
+                owner_email, code, ..
+            }) => {
+                assert_eq!(owner_email, "owner@example.com");
+                assert!(code.is_none());
+            }
+            other => panic!(
+                "expected VerifyOwner command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
+    fn test_verify_owner_keeps_email_flag_alias() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "verify-owner",
+            "--email",
+            "owner@example.com",
+            "--code",
+            "123456",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::VerifyOwner { owner_email, code }) => {
+                assert_eq!(owner_email, "owner@example.com");
+                assert_eq!(code.as_deref(), Some("123456"));
+            }
+            other => panic!(
+                "expected VerifyOwner command, got {:?}",
+                other.map(|_| "other")
+            ),
+        }
+    }
+
+    #[test]
+    fn test_account_recover_maps_legacy_flags_to_api_names() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "account-recover",
+            "--name",
+            "agent-name",
+            "--email",
+            "owner@example.com",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::AccountRecover {
+                account_name,
+                owner_email,
+                code,
+            }) => {
+                assert_eq!(account_name, "agent-name");
+                assert_eq!(owner_email, "owner@example.com");
+                assert!(code.is_none());
+            }
+            other => panic!(
+                "expected AccountRecover command, got {:?}",
                 other.map(|_| "other")
             ),
         }
