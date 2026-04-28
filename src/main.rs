@@ -293,8 +293,8 @@ enum Commands {
         #[arg(long)]
         name: String,
         /// Recovery email address
-        #[arg(long)]
-        email: String,
+        #[arg(long = "email", alias = "owner-email", alias = "owner_email")]
+        owner_email: String,
         /// Recovery code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -302,8 +302,8 @@ enum Commands {
     /// Verify email ownership
     VerifyOwner {
         /// Email address to verify
-        #[arg(long)]
-        email: String,
+        #[arg(long = "email", alias = "owner-email", alias = "owner_email")]
+        owner_email: String,
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
@@ -2210,6 +2210,14 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
     }
 }
 
+fn build_account_recover_args(name: &str, owner_email: &str) -> Value {
+    json!({"account_name": name, "owner_email": owner_email})
+}
+
+fn build_verify_owner_args(owner_email: &str) -> Value {
+    json!({"owner_email": owner_email})
+}
+
 /// Truncate a string to `max_len` characters, appending "..." if truncated.
 fn truncate_with_ellipsis(s: &str, max_len: usize) -> String {
     let mut chars = s.chars().take(max_len + 1);
@@ -2673,10 +2681,10 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         }
         Some(Commands::AccountRecover {
             ref name,
-            ref email,
+            ref owner_email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
+            let mut args = build_account_recover_args(name, owner_email);
             if let Some(code) = code {
                 let c = code.trim();
                 if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
@@ -2692,17 +2700,17 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             print_result("account_recover", &text, cli.human);
         }
         Some(Commands::VerifyOwner {
-            ref email,
+            ref owner_email,
             ref code,
         }) => {
             if !prompt_yes_no(&format!(
                 "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                email
+                owner_email
             )) {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
+            let mut args = build_verify_owner_args(owner_email);
             if let Some(code) = code {
                 args["code"] = json!(code);
             }
@@ -7539,6 +7547,76 @@ mod tests {
     }
 
     // --- CLI parsing tests ---
+
+    #[test]
+    fn test_verify_owner_payload_uses_api_owner_email_key() {
+        let args = build_verify_owner_args("owner@example.com");
+
+        assert_eq!(args, json!({"owner_email": "owner@example.com"}));
+        assert!(args.get("email").is_none());
+    }
+
+    #[test]
+    fn test_account_recover_payload_uses_api_keys() {
+        let args = build_account_recover_args("agent-name", "owner@example.com");
+
+        assert_eq!(
+            args,
+            json!({"account_name": "agent-name", "owner_email": "owner@example.com"})
+        );
+        assert!(args.get("name").is_none());
+        assert!(args.get("email").is_none());
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_email_and_owner_email_flags() {
+        for flag in ["--email", "--owner-email", "--owner_email"] {
+            let cli = Cli::try_parse_from(["inboxapi", "verify-owner", flag, "owner@example.com"])
+                .unwrap();
+
+            match cli.command {
+                Some(Commands::VerifyOwner { owner_email, code }) => {
+                    assert_eq!(owner_email, "owner@example.com");
+                    assert!(code.is_none());
+                }
+                other => panic!(
+                    "expected VerifyOwner command, got {:?}",
+                    other.map(|_| "other")
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_account_recover_accepts_email_and_owner_email_flags() {
+        for flag in ["--email", "--owner-email", "--owner_email"] {
+            let cli = Cli::try_parse_from([
+                "inboxapi",
+                "account-recover",
+                "--name",
+                "agent-name",
+                flag,
+                "owner@example.com",
+            ])
+            .unwrap();
+
+            match cli.command {
+                Some(Commands::AccountRecover {
+                    name,
+                    owner_email,
+                    code,
+                }) => {
+                    assert_eq!(name, "agent-name");
+                    assert_eq!(owner_email, "owner@example.com");
+                    assert!(code.is_none());
+                }
+                other => panic!(
+                    "expected AccountRecover command, got {:?}",
+                    other.map(|_| "other")
+                ),
+            }
+        }
+    }
 
     #[test]
     fn test_send_email_accepts_body_file_flags() {
