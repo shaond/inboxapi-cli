@@ -429,7 +429,7 @@ If your agent's credentials are lost or corrupted, you can recover the account u
 
 ### What is owner verification?
 
-Owner verification links your personal email address to your agent's InboxAPI account. Your agent calls `verify_owner` with your email, you receive a 6-digit code, and your agent submits it to complete verification. Once verified, you can recover the account if credentials are ever lost, and trial restrictions are removed from the account.
+Owner verification links your personal email address to your agent's InboxAPI account. Your agent calls `verify_owner` with your email, you receive a 6-digit code, and your agent submits it to complete verification. Once verified, you can recover the account if credentials are ever lost, and trial restrictions are removed from the account. The CLI subcommand `verify-owner` prompts for confirmation by default; use `--yes` for non-interactive runs.
 
 ### What domains are blocked from sending?
 
