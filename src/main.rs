@@ -1878,15 +1878,20 @@ fn build_send_email_args(
     args
 }
 
+fn normalize_six_digit_code<'a>(code: &'a str, code_kind: &str) -> Result<&'a str> {
+    let c = code.trim();
+    if c.len() != 6 || !c.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(anyhow!(
+            "Invalid {code_kind} code format. Expected a 6-digit numeric code."
+        ));
+    }
+    Ok(c)
+}
+
 fn build_account_recover_args(name: &str, email: &str, code: Option<&str>) -> Result<Value> {
     let mut args = json!({"account_name": name, "owner_email": email});
     if let Some(code) = code {
-        let c = code.trim();
-        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-            return Err(anyhow!(
-                "Invalid recovery code format. Expected a 6-digit numeric code."
-            ));
-        }
+        let c = normalize_six_digit_code(code, "recovery")?;
         args["code"] = json!(c);
     }
     Ok(args)
@@ -1895,12 +1900,7 @@ fn build_account_recover_args(name: &str, email: &str, code: Option<&str>) -> Re
 fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Result<Value> {
     let mut args = json!({"owner_email": owner_email});
     if let Some(code) = code {
-        let c = code.trim();
-        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-            return Err(anyhow!(
-                "Invalid verification code format. Expected a 6-digit numeric code."
-            ));
-        }
+        let c = normalize_six_digit_code(code, "verification")?;
         args["code"] = json!(c);
     }
     Ok(args)
