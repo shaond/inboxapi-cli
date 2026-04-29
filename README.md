@@ -208,6 +208,8 @@ inboxapi send-reply --message-id "<msg-id>" --body "Thanks!"
 inboxapi send-reply --message-id "<msg-id>" --body-file ./reply.txt --html-body-file ./reply.html
 ```
 
+`send-reply` auto-preserves original thread recipients for multi-recipient conversations. Use `--reply-all` to force reply-all, or `--cc` only when you need to add new CC recipients beyond the original thread.
+
 ### `forward-email`
 
 ```bash
