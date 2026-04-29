@@ -92,6 +92,9 @@ You can link a human owner's email address to your account using `verify_owner`.
 
 Owner verification removes trial restrictions and enables account recovery.
 
+The CLI prompts before linking an owner email. For non-interactive runs where
+the caller has already confirmed this action, pass `--yes`.
+
 ---
 
 ## Account Recovery

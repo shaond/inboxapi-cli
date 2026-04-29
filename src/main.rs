@@ -307,6 +307,9 @@ enum Commands {
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
+        /// Confirm linking this owner email without prompting
+        #[arg(long)]
+        yes: bool,
     },
     /// Enable email encryption
     EnableEncryption,
@@ -2299,6 +2302,7 @@ Examples:
   inboxapi get-thread --message-id \"<msg-id>\"
   inboxapi get-addressbook
   inboxapi search-emails --subject \"invoice\"
+  inboxapi verify-owner --email owner@example.com --yes
   inboxapi get-attachment abc123 --output ./file.pdf
   inboxapi send-reply --message-id \"<msg-id>\" --body \"Thanks!\"
   inboxapi send-reply --message-id \"<msg-id>\" --body-file ./reply.txt --html-body-file ./reply.html
@@ -2707,11 +2711,14 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         Some(Commands::VerifyOwner {
             ref owner_email,
             ref code,
+            yes,
         }) => {
-            if !prompt_yes_no(&format!(
-                "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                owner_email
-            )) {
+            if !yes
+                && !prompt_yes_no(&format!(
+                    "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
+                    owner_email
+                ))
+            {
                 println!("Aborted.");
                 return Ok(());
             }
@@ -7775,7 +7782,8 @@ mod tests {
             cli.command,
             Some(Commands::VerifyOwner {
                 owner_email,
-                code: None
+                code: None,
+                yes: false
             }) if owner_email == "a@b.com"
         ));
 
@@ -7784,7 +7792,8 @@ mod tests {
             cli.command,
             Some(Commands::VerifyOwner {
                 owner_email,
-                code: None
+                code: None,
+                yes: false
             }) if owner_email == "a@b.com"
         ));
 
@@ -7794,8 +7803,32 @@ mod tests {
             cli.command,
             Some(Commands::VerifyOwner {
                 owner_email,
-                code: None
+                code: None,
+                yes: false
             }) if owner_email == "a@b.com"
+        ));
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_yes_flag() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "verify-owner",
+            "--email",
+            "a@b.com",
+            "--code",
+            "123456",
+            "--yes",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Some(Commands::VerifyOwner {
+                owner_email,
+                code: Some(code),
+                yes: true
+            }) if owner_email == "a@b.com" && code == "123456"
         ));
     }
 

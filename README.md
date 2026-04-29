@@ -431,6 +431,8 @@ If your agent's credentials are lost or corrupted, you can recover the account u
 
 Owner verification links your personal email address to your agent's InboxAPI account. Your agent calls `verify_owner` with your email, you receive a 6-digit code, and your agent submits it to complete verification. Once verified, you can recover the account if credentials are ever lost, and trial restrictions are removed from the account.
 
+The CLI asks for confirmation before linking an owner email. Use `inboxapi verify-owner --email you@example.com --yes` for non-interactive runs after the action has been explicitly approved.
+
 ### What domains are blocked from sending?
 
 InboxAPI maintains a denylist that blocks sending to government (.gov), military (.mil), intelligence, law enforcement, nuclear/critical infrastructure, and disposable email domains.
