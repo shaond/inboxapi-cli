@@ -1992,12 +1992,14 @@ fn normalize_body_newlines(input: String) -> String {
 fn json_string_or_joined_array(value: &Value) -> Option<String> {
     value
         .as_str()
-        .map(|s| s.to_string())
+        .map(|s| s.trim().to_string())
         .or_else(|| {
             value.as_array().map(|items| {
                 items
                     .iter()
-                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .filter_map(|item| item.as_str().map(str::trim))
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
                     .collect::<Vec<_>>()
                     .join(", ")
             })
@@ -2071,7 +2073,7 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                     .unwrap_or("unknown");
                 let to = json_string_or_joined_array(&email["to"]).unwrap_or_default();
                 let cc = json_string_or_joined_array(&email["cc"]);
-                let reply_to = email["reply_to"].as_str().filter(|s| !s.is_empty());
+                let reply_to = json_string_or_joined_array(&email["reply_to"]);
                 let subject = email["subject"].as_str().unwrap_or("(no subject)");
                 let date = email["date"]
                     .as_str()
@@ -2158,7 +2160,7 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                             .unwrap_or("unknown");
                         let to = json_string_or_joined_array(&msg["to"]).unwrap_or_default();
                         let cc = json_string_or_joined_array(&msg["cc"]);
-                        let reply_to = msg["reply_to"].as_str().filter(|s| !s.is_empty());
+                        let reply_to = json_string_or_joined_array(&msg["reply_to"]);
                         let date = msg["date"]
                             .as_str()
                             .or_else(|| msg["received_at"].as_str())
@@ -8018,12 +8020,12 @@ mod tests {
 
     #[test]
     fn test_human_output_get_email() {
-        let text = r#"{"from": "alice@test.com", "to": "bob@test.com", "cc": ["carol@test.com"], "reply_to": "replies@test.com", "subject": "Hi", "date": "2024-01-01", "body": "Hello Bob"}"#;
+        let text = r#"{"from": "alice@test.com", "to": "bob@test.com", "cc": ["carol@test.com"], "reply_to": ["replies@test.com", "backup@test.com"], "subject": "Hi", "date": "2024-01-01", "body": "Hello Bob"}"#;
         let output = format_human_output("get_email", text);
         assert!(output.contains("From: alice@test.com"));
         assert!(output.contains("To: bob@test.com"));
         assert!(output.contains("Cc: carol@test.com"));
-        assert!(output.contains("Reply-To: replies@test.com"));
+        assert!(output.contains("Reply-To: replies@test.com, backup@test.com"));
         assert!(output.contains("Subject: Hi"));
         assert!(output.contains("Hello Bob"));
     }
@@ -8105,16 +8107,29 @@ mod tests {
 
     #[test]
     fn test_human_output_get_thread() {
-        let text = r#"{"subject": "Discussion", "messages": [{"from": "alice@test.com", "to": ["agent@test.com", "bob@test.com"], "cc": ["carol@test.com"], "reply_to": "replies@test.com", "date": "2024-01-01", "subject": "Discussion", "body": "Hello"}, {"from": "bob@test.com", "to": "agent@test.com", "date": "2024-01-02", "subject": "Re: Discussion", "body": "Hi back"}]}"#;
+        let text = r#"{"subject": "Discussion", "messages": [{"from": "alice@test.com", "to": ["agent@test.com", "bob@test.com"], "cc": ["carol@test.com"], "reply_to": ["replies@test.com", "backup@test.com"], "date": "2024-01-01", "subject": "Discussion", "body": "Hello"}, {"from": "bob@test.com", "to": "agent@test.com", "date": "2024-01-02", "subject": "Re: Discussion", "body": "Hi back"}]}"#;
         let output = format_human_output("get_thread", text);
         assert!(output.contains("Thread: Discussion"));
         assert!(output.contains("[1] From: alice@test.com"));
         assert!(output.contains("To: agent@test.com, bob@test.com"));
         assert!(output.contains("Cc: carol@test.com"));
-        assert!(output.contains("Reply-To: replies@test.com"));
+        assert!(output.contains("Reply-To: replies@test.com, backup@test.com"));
         assert!(output.contains("[2] From: bob@test.com"));
         assert!(output.contains("Hello"));
         assert!(output.contains("Hi back"));
+    }
+
+    #[test]
+    fn test_json_string_or_joined_array_trims_and_filters_empty_values() {
+        assert_eq!(
+            json_string_or_joined_array(&json!(["  alice@test.com  ", "", " ", "bob@test.com"])),
+            Some("alice@test.com, bob@test.com".to_string())
+        );
+        assert_eq!(json_string_or_joined_array(&json!(["", "  "])), None);
+        assert_eq!(
+            json_string_or_joined_array(&json!("  carol@test.com  ")),
+            Some("carol@test.com".to_string())
+        );
     }
 
     #[test]

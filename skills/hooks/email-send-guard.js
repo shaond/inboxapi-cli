@@ -5,6 +5,12 @@
 
 const fs = require("fs");
 
+function hasStandaloneFlag(cmd, flag) {
+  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(?:^|\\s)${escaped}(?=\\s|$)`);
+  return pattern.test(cmd);
+}
+
 function main() {
   const input = fs.readFileSync(0, "utf8");
   let data;
@@ -37,7 +43,7 @@ function main() {
     const toMatch = cmd.match(/--to(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
     const messageIdMatch = cmd.match(/--message-id(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
     const ccMatch = cmd.match(/--cc(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
-    const replyAll = cmd.includes("--reply-all");
+    const replyAll = hasStandaloneFlag(cmd, "--reply-all");
     const explicitCc = (ccMatch && (ccMatch[1] || ccMatch[2] || ccMatch[3] || "").trim()) || "";
     if (isReply) {
       const threadRef = (messageIdMatch && (messageIdMatch[1] || messageIdMatch[2] || messageIdMatch[3] || "").trim()) || "(unknown thread)";
