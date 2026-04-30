@@ -7744,11 +7744,26 @@ mod tests {
     fn test_account_recover_args_use_api_field_names() {
         let args = build_account_recover_args("agent-name", "owner@example.com", None).unwrap();
 
-        assert_eq!(args["account_name"], "agent-name");
-        assert_eq!(args["owner_email"], "owner@example.com");
-        assert!(args.get("name").is_none());
-        assert!(args.get("email").is_none());
-        assert!(args.get("code").is_none());
+        assert_eq!(
+            args["account_name"], "agent-name",
+            "account_recover args should use account_name"
+        );
+        assert_eq!(
+            args["owner_email"], "owner@example.com",
+            "account_recover args should use owner_email"
+        );
+        assert!(
+            args.get("name").is_none(),
+            "account_recover args should not use legacy name"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "account_recover args should not use legacy email"
+        );
+        assert!(
+            args.get("code").is_none(),
+            "account_recover args should omit code when absent"
+        );
     }
 
     #[test]
@@ -7756,9 +7771,13 @@ mod tests {
         let args = build_account_recover_args("agent-name", "owner@example.com", Some(" 123456 "))
             .unwrap();
 
-        assert_eq!(args["code"], "123456");
+        assert_eq!(
+            args["code"], "123456",
+            "account_recover args should trim recovery code"
+        );
         assert!(
-            build_account_recover_args("agent-name", "owner@example.com", Some("abc123")).is_err()
+            build_account_recover_args("agent-name", "owner@example.com", Some("abc123")).is_err(),
+            "account_recover args should reject non-numeric recovery code"
         );
     }
 
@@ -7766,60 +7785,90 @@ mod tests {
     fn test_verify_owner_args_use_owner_email() {
         let args = build_verify_owner_args("owner@example.com", None).unwrap();
 
-        assert_eq!(args["owner_email"], "owner@example.com");
-        assert!(args.get("email").is_none());
-        assert!(args.get("code").is_none());
+        assert_eq!(
+            args["owner_email"], "owner@example.com",
+            "verify_owner args should use owner_email"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "verify_owner args should not use legacy email"
+        );
+        assert!(
+            args.get("code").is_none(),
+            "verify_owner args should omit code when absent"
+        );
     }
 
     #[test]
     fn test_verify_owner_args_include_code() {
         let args = build_verify_owner_args("owner@example.com", Some("654321")).unwrap();
 
-        assert_eq!(args["owner_email"], "owner@example.com");
-        assert_eq!(args["code"], "654321");
+        assert_eq!(
+            args["owner_email"], "owner@example.com",
+            "verify_owner args should use owner_email"
+        );
+        assert_eq!(
+            args["code"], "654321",
+            "verify_owner args should include verification code"
+        );
     }
 
     #[test]
     fn test_verify_owner_args_trim_and_validate_code() {
         let args = build_verify_owner_args("owner@example.com", Some(" 654321 ")).unwrap();
 
-        assert_eq!(args["code"], "654321");
-        assert!(build_verify_owner_args("owner@example.com", Some("abc123")).is_err());
+        assert_eq!(
+            args["code"], "654321",
+            "verify_owner args should trim verification code"
+        );
+        assert!(
+            build_verify_owner_args("owner@example.com", Some("abc123")).is_err(),
+            "verify_owner args should reject non-numeric verification code"
+        );
     }
 
     #[test]
     fn test_verify_owner_accepts_owner_email_flag_email_alias_and_yes_flag() {
         let cli =
             Cli::try_parse_from(["inboxapi", "verify-owner", "--owner-email", "a@b.com"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::VerifyOwner {
-                owner_email,
-                code: None,
-                yes: false
-            }) if owner_email == "a@b.com"
-        ));
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None,
+                    yes: false
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should accept --owner-email without --yes"
+        );
 
         let cli = Cli::try_parse_from(["inboxapi", "verify-owner", "--email", "a@b.com"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::VerifyOwner {
-                owner_email,
-                code: None,
-                yes: false
-            }) if owner_email == "a@b.com"
-        ));
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None,
+                    yes: false
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should accept --email alias without --yes"
+        );
 
         let cli =
             Cli::try_parse_from(["inboxapi", "verify-owner", "--owner_email", "a@b.com"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::VerifyOwner {
-                owner_email,
-                code: None,
-                yes: false
-            }) if owner_email == "a@b.com"
-        ));
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None,
+                    yes: false
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should accept --owner_email alias without --yes"
+        );
 
         let cli = Cli::try_parse_from([
             "inboxapi",
@@ -7829,14 +7878,17 @@ mod tests {
             "--yes",
         ])
         .unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::VerifyOwner {
-                owner_email,
-                code: None,
-                yes: true
-            }) if owner_email == "a@b.com"
-        ));
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None,
+                    yes: true
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should accept --yes for non-interactive runs"
+        );
     }
 
     // --- build_attachment_from_file tests ---
