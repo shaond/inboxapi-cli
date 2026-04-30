@@ -51,11 +51,12 @@ function main() {
       if (replyAll) extras.push("reply-all forced");
       if (explicitCc) extras.push(`extra cc: ${explicitCc}`);
       toDisplay = `resolved from thread ${threadRef}${extras.length ? ` (${extras.join("; ")})` : ""}`;
+      subject = "(resolved from thread)";
     } else {
       toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3] || "").trim()) || "(unknown)";
+      const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+      subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3] || "").trim()) || "(no subject)";
     }
-    const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
-    subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3] || "").trim()) || "(no subject)";
     const bodyMatch = cmd.match(/--body(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
     body = (bodyMatch && (bodyMatch[1] || bodyMatch[2] || bodyMatch[3] || "").trim()) || "";
     action = isForward ? "FORWARD" : isReply ? "REPLY" : "SEND";
@@ -77,12 +78,13 @@ function main() {
         extras.push(`extra cc: ${ccList.join(", ")}`);
       }
       toDisplay = `resolved from thread ${toolInput.in_reply_to || "(unknown thread)"}${extras.length ? ` (${extras.join("; ")})` : ""}`;
+      subject = "(resolved from thread)";
     } else {
       const rawTo = toolInput.to || toolInput.recipient || "(unknown)";
       const toList = Array.isArray(rawTo) ? rawTo : [rawTo];
       toDisplay = toList.join(", ");
+      subject = toolInput.subject || "(no subject)";
     }
-    subject = toolInput.subject || "(no subject)";
     body = toolInput.body || toolInput.message || "";
     action = toolName.includes("forward")
       ? "FORWARD"

@@ -19,31 +19,38 @@ Help the user reply to an email with full thread context.
 
 2. **Load thread context**: Run: `npx -y @inboxapi/cli get-thread --message-id "<message-id>"` with the email's message ID to show the full conversation
 
-3. **Display thread**: Show the conversation history in chronological order:
+3. **Load mailbox identity**: Run `npx -y @inboxapi/cli whoami` so you know the current mailbox email and can exclude only that mailbox from preserved thread recipients
+
+4. **Display thread**: Show the conversation history in chronological order:
    ```
    --- Thread: <subject> ---
 
    [1] From: alice@example.com
        To: agent@inboxapi.ai, bob@example.com
        Cc: team@example.com
+       Reply-To: replies@example.com
        Date: Jan 15, 2:30 PM
+       Subject: <subject>
    > Original message text...
 
    [2] From: you@inboxapi.ai
        To: alice@example.com
        Date: Jan 15, 3:00 PM
+       Subject: Re: <subject>
    > Your previous reply...
 
    [3] From: alice@example.com
        To: agent@inboxapi.ai, bob@example.com
        Cc: team@example.com
+       Reply-To: replies@example.com
        Date: Jan 15, 4:15 PM
+       Subject: Re: <subject>
    > Latest message you're replying to...
    ```
 
-4. **Compose reply**: Ask the user what they want to say in their reply
+5. **Compose reply**: Ask the user what they want to say in their reply
 
-5. **Preview**: Show the reply before sending:
+6. **Preview**: Show the reply before sending:
    ```
    Replying to: alice@example.com
    To: alice@example.com
@@ -56,11 +63,12 @@ Help the user reply to an email with full thread context.
    - primary `To` is `Reply-To` if present, otherwise the original sender
    - preserve all original thread participants from `To`/`Cc` in `Cc`
    - exclude only the current mailbox itself
+   - use the mailbox email from `whoami` to determine which participant is “self”
    - use `--cc` only for new recipients beyond the original thread
 
-6. **Confirm**: Ask "Send this reply? (yes/no)"
+7. **Confirm**: Ask "Send this reply? (yes/no)"
 
-7. **Send**: Run: `npx -y @inboxapi/cli send-reply --message-id "<id>" --body "<reply>"`
+8. **Send**: Run: `npx -y @inboxapi/cli send-reply --message-id "<id>" --body "<reply>"`
    If the reply body or HTML is complex, prefer `--body-file "<path>"` and `--html-body-file "<path>"` over generating helper scripts just to pass content on the command line. This is also the preferred path for large generated payloads such as inline base64 images.
 
    **Recipient behavior**: By default, `send-reply` auto-preserves original thread recipients for multi-recipient conversations. Use `--reply-all` to force reply-all even if the server would not auto-select it, and use `--cc` only to add new CC recipients beyond the original thread:
