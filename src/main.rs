@@ -2158,7 +2158,7 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                             .as_str()
                             .or_else(|| msg["sender"].as_str())
                             .unwrap_or("unknown");
-                        let to = json_string_or_joined_array(&msg["to"]).unwrap_or_default();
+                        let to = json_string_or_joined_array(&msg["to"]);
                         let cc = json_string_or_joined_array(&msg["cc"]);
                         let reply_to = json_string_or_joined_array(&msg["reply_to"]);
                         let date = msg["date"]
@@ -2171,10 +2171,10 @@ fn format_human_output(tool_name: &str, text: &str) -> String {
                             .or_else(|| msg["text_body"].as_str())
                             .unwrap_or("");
                         let preview = truncate_with_ellipsis(body, 100);
-                        let mut message_lines = vec![
-                            format!("[{}] From: {}", i + 1, from),
-                            format!("  To: {}", to),
-                        ];
+                        let mut message_lines = vec![format!("[{}] From: {}", i + 1, from)];
+                        if let Some(to) = to {
+                            message_lines.push(format!("  To: {}", to));
+                        }
                         if let Some(cc) = cc {
                             message_lines.push(format!("  Cc: {}", cc));
                         }
@@ -8142,6 +8142,14 @@ mod tests {
         let output = format_human_output("get_thread", &text);
         assert!(output.contains("..."));
         assert!(output.contains(&"x".repeat(100)));
+    }
+
+    #[test]
+    fn test_human_output_get_thread_omits_blank_to_line() {
+        let text = r#"{"messages": [{"from": "a@b.com", "date": "2024-01-01", "subject": "Test", "body": "Hello"}]}"#;
+        let output = format_human_output("get_thread", text);
+        assert!(!output.contains("  To: "));
+        assert!(output.contains("Subject: Test"));
     }
 
     #[test]

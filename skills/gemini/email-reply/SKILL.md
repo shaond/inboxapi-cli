@@ -56,12 +56,13 @@ Help the user reply to an email with full thread context.
    ---
    <reply body>
    ```
-   Derive `To`/`Cc` from the thread exactly as InboxAPI does:
+   Preview the likely `To`/`Cc` set using the thread context:
    - primary `To` is `Reply-To` if present, otherwise the original sender
    - preserve all original thread participants from `To`/`Cc` in `Cc`
    - exclude only the current mailbox itself
    - use the mailbox email from `whoami` to determine which participant is “self”
    - use `--cc` only for new recipients beyond the original thread
+   Treat this as a preview heuristic. The authoritative final recipient set is whatever `send-reply` returns after the send.
 
 7. **Confirm**: Ask "Send this reply? (yes/no)"
 
