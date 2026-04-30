@@ -5,6 +5,12 @@
 
 const fs = require("fs");
 
+function hasStandaloneFlag(cmd, flag) {
+  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(?:^|\\s)${escaped}(?=\\s|$)`);
+  return pattern.test(cmd);
+}
+
 function main() {
   const input = fs.readFileSync(0, "utf8");
   let data;
@@ -35,9 +41,22 @@ function main() {
     // Best-effort extraction from CLI flags
     // Captures: "quoted", 'quoted', or unquoted value until next --flag or end of string
     const toMatch = cmd.match(/--to(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
-    toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3] || "").trim()) || "(unknown)";
-    const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
-    subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3] || "").trim()) || "(no subject)";
+    const messageIdMatch = cmd.match(/--message-id(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    const ccMatch = cmd.match(/--cc(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    const replyAll = hasStandaloneFlag(cmd, "--reply-all");
+    const explicitCc = (ccMatch && (ccMatch[1] || ccMatch[2] || ccMatch[3] || "").trim()) || "";
+    if (isReply) {
+      const threadRef = (messageIdMatch && (messageIdMatch[1] || messageIdMatch[2] || messageIdMatch[3] || "").trim()) || "(unknown thread)";
+      const extras = [];
+      if (replyAll) extras.push("reply-all forced");
+      if (explicitCc) extras.push(`extra cc: ${explicitCc}`);
+      toDisplay = `resolved from thread ${threadRef}${extras.length ? ` (${extras.join("; ")})` : ""}`;
+      subject = "(resolved from thread)";
+    } else {
+      toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3] || "").trim()) || "(unknown)";
+      const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+      subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3] || "").trim()) || "(no subject)";
+    }
     const bodyMatch = cmd.match(/--body(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
     body = (bodyMatch && (bodyMatch[1] || bodyMatch[2] || bodyMatch[3] || "").trim()) || "";
     action = isForward ? "FORWARD" : isReply ? "REPLY" : "SEND";
@@ -51,10 +70,21 @@ function main() {
       process.exit(0);
     }
 
-    const rawTo = toolInput.to || toolInput.recipient || "(unknown)";
-    const toList = Array.isArray(rawTo) ? rawTo : [rawTo];
-    toDisplay = toList.join(", ");
-    subject = toolInput.subject || "(no subject)";
+    if (toolName.includes("reply")) {
+      const extras = [];
+      if (toolInput.reply_all === true) extras.push("reply-all forced");
+      if (toolInput.cc) {
+        const ccList = Array.isArray(toolInput.cc) ? toolInput.cc : [toolInput.cc];
+        extras.push(`extra cc: ${ccList.join(", ")}`);
+      }
+      toDisplay = `resolved from thread ${toolInput.in_reply_to || "(unknown thread)"}${extras.length ? ` (${extras.join("; ")})` : ""}`;
+      subject = "(resolved from thread)";
+    } else {
+      const rawTo = toolInput.to || toolInput.recipient || "(unknown)";
+      const toList = Array.isArray(rawTo) ? rawTo : [rawTo];
+      toDisplay = toList.join(", ");
+      subject = toolInput.subject || "(no subject)";
+    }
     body = toolInput.body || toolInput.message || "";
     action = toolName.includes("forward")
       ? "FORWARD"
