@@ -1889,12 +1889,18 @@ fn build_account_recover_args(name: &str, email: &str, code: Option<&str>) -> Re
     Ok(args)
 }
 
-fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Value {
+fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Result<Value> {
     let mut args = json!({"owner_email": owner_email});
     if let Some(code) = code {
-        args["code"] = json!(code);
+        let c = code.trim();
+        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
+            return Err(anyhow!(
+                "Invalid verification code format. Expected a 6-digit numeric code."
+            ));
+        }
+        args["code"] = json!(c);
     }
-    args
+    Ok(args)
 }
 
 fn resolve_body_input(
@@ -2715,7 +2721,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let args = build_verify_owner_args(owner_email, code.as_deref());
+            let args = build_verify_owner_args(owner_email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7752,7 +7758,7 @@ mod tests {
 
     #[test]
     fn test_verify_owner_args_use_owner_email() {
-        let args = build_verify_owner_args("owner@example.com", None);
+        let args = build_verify_owner_args("owner@example.com", None).unwrap();
 
         assert_eq!(args["owner_email"], "owner@example.com");
         assert!(args.get("email").is_none());
@@ -7761,10 +7767,11 @@ mod tests {
 
     #[test]
     fn test_verify_owner_args_include_code() {
-        let args = build_verify_owner_args("owner@example.com", Some("654321"));
+        let args = build_verify_owner_args("owner@example.com", Some(" 654321 ")).unwrap();
 
         assert_eq!(args["owner_email"], "owner@example.com");
         assert_eq!(args["code"], "654321");
+        assert!(build_verify_owner_args("owner@example.com", Some("65432")).is_err());
     }
 
     #[test]
