@@ -1875,6 +1875,22 @@ fn build_send_email_args(
     args
 }
 
+fn build_account_recover_args(name: &str, email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"account_name": name, "owner_email": email});
+    if let Some(code) = code {
+        args["code"] = json!(code);
+    }
+    args
+}
+
+fn build_verify_owner_args(email: &str, code: Option<&str>) -> Value {
+    let mut args = json!({"owner_email": email});
+    if let Some(code) = code {
+        args["code"] = json!(code);
+    }
+    args
+}
+
 fn resolve_body_input(
     inline: Option<&str>,
     file: Option<&Path>,
@@ -2676,16 +2692,18 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
             ref email,
             ref code,
         }) => {
-            let mut args = json!({"name": name, "email": email});
-            if let Some(code) = code {
+            let code = if let Some(code) = code {
                 let c = code.trim();
                 if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
                     return Err(anyhow!(
                         "Invalid recovery code format. Expected a 6-digit numeric code."
                     ));
                 }
-                args["code"] = json!(c);
-            }
+                Some(c)
+            } else {
+                None
+            };
+            let args = build_account_recover_args(name, email, code);
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "account_recover", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -2702,10 +2720,7 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
                 println!("Aborted.");
                 return Ok(());
             }
-            let mut args = json!({"email": email});
-            if let Some(code) = code {
-                args["code"] = json!(code);
-            }
+            let args = build_verify_owner_args(email, code.as_deref());
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7716,6 +7731,39 @@ mod tests {
             vec![],
         );
         assert_eq!(args["to"], json!(["a@b.com", "c@d.com"]));
+    }
+
+    #[test]
+    fn test_account_recover_args_use_server_schema_names() {
+        let args = build_account_recover_args("agent-name", "owner@example.com", None);
+        assert_eq!(args["account_name"], "agent-name");
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert!(args.get("name").is_none());
+        assert!(args.get("email").is_none());
+        assert!(args.get("code").is_none());
+    }
+
+    #[test]
+    fn test_account_recover_args_include_code() {
+        let args = build_account_recover_args("agent-name", "owner@example.com", Some("123456"));
+        assert_eq!(args["account_name"], "agent-name");
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert_eq!(args["code"], "123456");
+    }
+
+    #[test]
+    fn test_verify_owner_args_use_server_schema_names() {
+        let args = build_verify_owner_args("owner@example.com", None);
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert!(args.get("email").is_none());
+        assert!(args.get("code").is_none());
+    }
+
+    #[test]
+    fn test_verify_owner_args_include_code() {
+        let args = build_verify_owner_args("owner@example.com", Some("123456"));
+        assert_eq!(args["owner_email"], "owner@example.com");
+        assert_eq!(args["code"], "123456");
     }
 
     // --- build_attachment_from_file tests ---
