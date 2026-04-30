@@ -89,6 +89,7 @@ You can link a human owner's email address to your account using `verify_owner`.
 
 1. **Request a code** — call `verify_owner` with the owner's email address. A 6-digit verification code is sent to that address.
 2. **Submit the code** — call `verify_owner` again with both the email and the code. Once verified, the owner email is permanently linked to your account.
+3. **Automation note** — the CLI subcommand `verify-owner` prompts for confirmation by default; use `--yes` in scripted or agent-driven flows.
 
 Owner verification removes trial restrictions and enables account recovery.
 

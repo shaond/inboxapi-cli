@@ -307,6 +307,9 @@ enum Commands {
         /// Verification code (if already received)
         #[arg(long)]
         code: Option<String>,
+        /// Skip the interactive confirmation prompt
+        #[arg(long)]
+        yes: bool,
     },
     /// Enable email encryption
     EnableEncryption,
@@ -1875,26 +1878,32 @@ fn build_send_email_args(
     args
 }
 
+fn normalize_six_digit_code<'a>(code: &'a str, code_kind: &str) -> Result<&'a str> {
+    let c = code.trim();
+    if c.len() != 6 || !c.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(anyhow!(
+            "Invalid {code_kind} code format. Expected a 6-digit numeric code."
+        ));
+    }
+    Ok(c)
+}
+
 fn build_account_recover_args(name: &str, email: &str, code: Option<&str>) -> Result<Value> {
     let mut args = json!({"account_name": name, "owner_email": email});
     if let Some(code) = code {
-        let c = code.trim();
-        if !(c.len() == 6 && c.chars().all(|ch| ch.is_ascii_digit())) {
-            return Err(anyhow!(
-                "Invalid recovery code format. Expected a 6-digit numeric code."
-            ));
-        }
+        let c = normalize_six_digit_code(code, "recovery")?;
         args["code"] = json!(c);
     }
     Ok(args)
 }
 
-fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Value {
+fn build_verify_owner_args(owner_email: &str, code: Option<&str>) -> Result<Value> {
     let mut args = json!({"owner_email": owner_email});
     if let Some(code) = code {
-        args["code"] = json!(code);
+        let c = normalize_six_digit_code(code, "verification")?;
+        args["code"] = json!(c);
     }
-    args
+    Ok(args)
 }
 
 fn resolve_body_input(
@@ -2707,15 +2716,18 @@ async fn run_cli_command(cli: &Cli) -> Result<()> {
         Some(Commands::VerifyOwner {
             ref owner_email,
             ref code,
+            yes,
         }) => {
-            if !prompt_yes_no(&format!(
-                "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
-                owner_email
-            )) {
+            if !yes
+                && !prompt_yes_no(&format!(
+                    "WARNING: This will link {} to your account for recovery. Continue? [y/N] ",
+                    owner_email
+                ))
+            {
                 println!("Aborted.");
                 return Ok(());
             }
-            let args = build_verify_owner_args(owner_email, code.as_deref());
+            let args = build_verify_owner_args(owner_email, code.as_deref())?;
             let response =
                 call_mcp_tool(&endpoint, &mut creds, &http_client, "verify_owner", args).await?;
             let text = extract_tool_result_text(&response)?;
@@ -7732,11 +7744,26 @@ mod tests {
     fn test_account_recover_args_use_api_field_names() {
         let args = build_account_recover_args("agent-name", "owner@example.com", None).unwrap();
 
-        assert_eq!(args["account_name"], "agent-name");
-        assert_eq!(args["owner_email"], "owner@example.com");
-        assert!(args.get("name").is_none());
-        assert!(args.get("email").is_none());
-        assert!(args.get("code").is_none());
+        assert_eq!(
+            args["account_name"], "agent-name",
+            "account_recover args should use account_name"
+        );
+        assert_eq!(
+            args["owner_email"], "owner@example.com",
+            "account_recover args should use owner_email"
+        );
+        assert!(
+            args.get("name").is_none(),
+            "account_recover args should not use legacy name"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "account_recover args should not use legacy email"
+        );
+        assert!(
+            args.get("code").is_none(),
+            "account_recover args should omit code when absent"
+        );
     }
 
     #[test]
@@ -7744,59 +7771,124 @@ mod tests {
         let args = build_account_recover_args("agent-name", "owner@example.com", Some(" 123456 "))
             .unwrap();
 
-        assert_eq!(args["code"], "123456");
+        assert_eq!(
+            args["code"], "123456",
+            "account_recover args should trim recovery code"
+        );
         assert!(
-            build_account_recover_args("agent-name", "owner@example.com", Some("abc123")).is_err()
+            build_account_recover_args("agent-name", "owner@example.com", Some("abc123")).is_err(),
+            "account_recover args should reject non-numeric recovery code"
         );
     }
 
     #[test]
     fn test_verify_owner_args_use_owner_email() {
-        let args = build_verify_owner_args("owner@example.com", None);
+        let args = build_verify_owner_args("owner@example.com", None).unwrap();
 
-        assert_eq!(args["owner_email"], "owner@example.com");
-        assert!(args.get("email").is_none());
-        assert!(args.get("code").is_none());
+        assert_eq!(
+            args["owner_email"], "owner@example.com",
+            "verify_owner args should use owner_email"
+        );
+        assert!(
+            args.get("email").is_none(),
+            "verify_owner args should not use legacy email"
+        );
+        assert!(
+            args.get("code").is_none(),
+            "verify_owner args should omit code when absent"
+        );
     }
 
     #[test]
     fn test_verify_owner_args_include_code() {
-        let args = build_verify_owner_args("owner@example.com", Some("654321"));
+        let args = build_verify_owner_args("owner@example.com", Some("654321")).unwrap();
 
-        assert_eq!(args["owner_email"], "owner@example.com");
-        assert_eq!(args["code"], "654321");
+        assert_eq!(
+            args["owner_email"], "owner@example.com",
+            "verify_owner args should use owner_email"
+        );
+        assert_eq!(
+            args["code"], "654321",
+            "verify_owner args should include verification code"
+        );
     }
 
     #[test]
-    fn test_verify_owner_accepts_owner_email_flag_and_email_alias() {
+    fn test_verify_owner_args_trim_and_validate_code() {
+        let args = build_verify_owner_args("owner@example.com", Some(" 654321 ")).unwrap();
+
+        assert_eq!(
+            args["code"], "654321",
+            "verify_owner args should trim verification code"
+        );
+        assert!(
+            build_verify_owner_args("owner@example.com", Some("abc123")).is_err(),
+            "verify_owner args should reject non-numeric verification code"
+        );
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_owner_email_flag_email_alias_and_yes_flag() {
         let cli =
             Cli::try_parse_from(["inboxapi", "verify-owner", "--owner-email", "a@b.com"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::VerifyOwner {
-                owner_email,
-                code: None
-            }) if owner_email == "a@b.com"
-        ));
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None,
+                    yes: false
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should accept --owner-email without --yes"
+        );
 
         let cli = Cli::try_parse_from(["inboxapi", "verify-owner", "--email", "a@b.com"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::VerifyOwner {
-                owner_email,
-                code: None
-            }) if owner_email == "a@b.com"
-        ));
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None,
+                    yes: false
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should accept --email alias without --yes"
+        );
 
         let cli =
             Cli::try_parse_from(["inboxapi", "verify-owner", "--owner_email", "a@b.com"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::VerifyOwner {
-                owner_email,
-                code: None
-            }) if owner_email == "a@b.com"
-        ));
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None,
+                    yes: false
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should accept --owner_email alias without --yes"
+        );
+
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "verify-owner",
+            "--owner-email",
+            "a@b.com",
+            "--yes",
+        ])
+        .unwrap();
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None,
+                    yes: true
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should accept --yes for non-interactive runs"
+        );
     }
 
     // --- build_attachment_from_file tests ---
