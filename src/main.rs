@@ -31,6 +31,7 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
+    /// Override the MCP endpoint URL
     #[arg(long, default_value = "https://mcp.inboxapi.ai/mcp", global = true)]
     endpoint: String,
 
@@ -42,16 +43,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Start the STDIO proxy (default)
-    Proxy {
-        #[arg(long, default_value = "https://mcp.inboxapi.ai/mcp")]
-        endpoint: String,
-    },
+    Proxy,
     /// Log in and create credentials
     Login {
         #[arg(long)]
         name: Option<String>,
-        #[arg(long, default_value = "https://mcp.inboxapi.ai/mcp")]
-        endpoint: String,
     },
     /// Show current account info
     Whoami,
@@ -1348,9 +1344,10 @@ fn merge_hook_settings(settings_path: &Path) -> Result<String> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let cli_endpoint = cli.endpoint.clone();
 
     match cli.command {
-        Some(Commands::Login { name, endpoint }) => login_flow(name, endpoint).await,
+        Some(Commands::Login { name }) => login_flow(name, cli_endpoint).await,
         Some(Commands::Whoami) => {
             let creds = load_credentials()?;
             println!("Logged in as: {}", creds.account_name);
@@ -1360,7 +1357,7 @@ async fn main() -> Result<()> {
             println!("Endpoint: {}", creds.endpoint);
             Ok(())
         }
-        Some(Commands::Proxy { endpoint }) => run_proxy(endpoint).await,
+        Some(Commands::Proxy) => run_proxy(cli_endpoint).await,
         Some(Commands::Reset) => reset_credentials(),
         Some(Commands::Backup { folder }) => backup_credentials(&folder),
         Some(Commands::Restore { folder }) => restore_credentials(&folder),
@@ -7811,14 +7808,57 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(cli.endpoint, "http://127.0.0.1:9");
-        assert!(matches!(
-            cli.command,
-            Some(Commands::VerifyOwner {
-                owner_email,
-                code: None
-            }) if owner_email == "a@b.com"
-        ));
+        assert_eq!(
+            cli.endpoint, "http://127.0.0.1:9",
+            "verify-owner should accept the global endpoint flag after the subcommand"
+        );
+        assert!(
+            matches!(
+                cli.command,
+                Some(Commands::VerifyOwner {
+                    owner_email,
+                    code: None
+                }) if owner_email == "a@b.com"
+            ),
+            "verify-owner should parse owner_email while accepting endpoint after the subcommand"
+        );
+    }
+
+    #[test]
+    fn test_proxy_accepts_endpoint_after_subcommand() {
+        let cli =
+            Cli::try_parse_from(["inboxapi", "proxy", "--endpoint", "http://127.0.0.1:9"]).unwrap();
+
+        assert_eq!(
+            cli.endpoint, "http://127.0.0.1:9",
+            "proxy should use the global endpoint flag even when placed after the subcommand"
+        );
+        assert!(
+            matches!(cli.command, Some(Commands::Proxy)),
+            "proxy should parse while accepting endpoint after the subcommand"
+        );
+    }
+
+    #[test]
+    fn test_login_accepts_endpoint_after_subcommand() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "login",
+            "--name",
+            "dev",
+            "--endpoint",
+            "http://127.0.0.1:9",
+        ])
+        .unwrap();
+
+        assert_eq!(
+            cli.endpoint, "http://127.0.0.1:9",
+            "login should use the global endpoint flag even when placed after the subcommand"
+        );
+        assert!(
+            matches!(cli.command, Some(Commands::Login { name }) if name.as_deref() == Some("dev")),
+            "login should parse its name while accepting endpoint after the subcommand"
+        );
     }
 
     // --- build_attachment_from_file tests ---
