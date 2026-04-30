@@ -35,7 +35,19 @@ function main() {
     // Best-effort extraction from CLI flags
     // Captures: "quoted", 'quoted', or unquoted value until next --flag or end of string
     const toMatch = cmd.match(/--to(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
-    toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3] || "").trim()) || "(unknown)";
+    const messageIdMatch = cmd.match(/--message-id(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    const ccMatch = cmd.match(/--cc(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
+    const replyAll = cmd.includes("--reply-all");
+    const explicitCc = (ccMatch && (ccMatch[1] || ccMatch[2] || ccMatch[3] || "").trim()) || "";
+    if (isReply) {
+      const threadRef = (messageIdMatch && (messageIdMatch[1] || messageIdMatch[2] || messageIdMatch[3] || "").trim()) || "(unknown thread)";
+      const extras = [];
+      if (replyAll) extras.push("reply-all forced");
+      if (explicitCc) extras.push(`extra cc: ${explicitCc}`);
+      toDisplay = `resolved from thread ${threadRef}${extras.length ? ` (${extras.join("; ")})` : ""}`;
+    } else {
+      toDisplay = (toMatch && (toMatch[1] || toMatch[2] || toMatch[3] || "").trim()) || "(unknown)";
+    }
     const subjectMatch = cmd.match(/--subject(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
     subject = (subjectMatch && (subjectMatch[1] || subjectMatch[2] || subjectMatch[3] || "").trim()) || "(no subject)";
     const bodyMatch = cmd.match(/--body(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(.+?)(?=\s+--|$))/);
@@ -51,9 +63,19 @@ function main() {
       process.exit(0);
     }
 
-    const rawTo = toolInput.to || toolInput.recipient || "(unknown)";
-    const toList = Array.isArray(rawTo) ? rawTo : [rawTo];
-    toDisplay = toList.join(", ");
+    if (toolName.includes("reply")) {
+      const extras = [];
+      if (toolInput.reply_all === true) extras.push("reply-all forced");
+      if (toolInput.cc) {
+        const ccList = Array.isArray(toolInput.cc) ? toolInput.cc : [toolInput.cc];
+        extras.push(`extra cc: ${ccList.join(", ")}`);
+      }
+      toDisplay = `resolved from thread ${toolInput.in_reply_to || "(unknown thread)"}${extras.length ? ` (${extras.join("; ")})` : ""}`;
+    } else {
+      const rawTo = toolInput.to || toolInput.recipient || "(unknown)";
+      const toList = Array.isArray(rawTo) ? rawTo : [rawTo];
+      toDisplay = toList.join(", ");
+    }
     subject = toolInput.subject || "(no subject)";
     body = toolInput.body || toolInput.message || "";
     action = toolName.includes("forward")

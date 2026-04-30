@@ -23,13 +23,21 @@ Help the user reply to an email with full thread context.
    ```
    --- Thread: <subject> ---
 
-   [1] From: alice@example.com (Jan 15, 2:30 PM)
+   [1] From: alice@example.com
+       To: agent@inboxapi.ai, bob@example.com
+       Cc: team@example.com
+       Date: Jan 15, 2:30 PM
    > Original message text...
 
-   [2] From: you@inboxapi.ai (Jan 15, 3:00 PM)
+   [2] From: you@inboxapi.ai
+       To: alice@example.com
+       Date: Jan 15, 3:00 PM
    > Your previous reply...
 
-   [3] From: alice@example.com (Jan 15, 4:15 PM)
+   [3] From: alice@example.com
+       To: agent@inboxapi.ai, bob@example.com
+       Cc: team@example.com
+       Date: Jan 15, 4:15 PM
    > Latest message you're replying to...
    ```
 
@@ -38,10 +46,17 @@ Help the user reply to an email with full thread context.
 5. **Preview**: Show the reply before sending:
    ```
    Replying to: alice@example.com
+   To: alice@example.com
+   Cc: bob@example.com, team@example.com
    Subject: Re: <subject>
    ---
    <reply body>
    ```
+   Derive `To`/`Cc` from the thread exactly as InboxAPI does:
+   - primary `To` is `Reply-To` if present, otherwise the original sender
+   - preserve all original thread participants from `To`/`Cc` in `Cc`
+   - exclude only the current mailbox itself
+   - use `--cc` only for new recipients beyond the original thread
 
 6. **Confirm**: Ask "Send this reply? (yes/no)"
 
@@ -71,7 +86,7 @@ Help the user reply to an email with full thread context.
 ## Rules
 
 - ALWAYS show the thread context before composing
-- ALWAYS preview and confirm before sending
+- ALWAYS preview the exact resolved `To`/`Cc` set and confirm before sending
 - NEVER send without explicit user confirmation
 - Do not manually include original thread recipients in `--cc`; `send-reply` auto-preserves them on multi-recipient threads
 - Use `--reply-all` when the user explicitly requests to reply to all recipients
