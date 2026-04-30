@@ -31,7 +31,7 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
-    #[arg(long, default_value = "https://mcp.inboxapi.ai/mcp")]
+    #[arg(long, default_value = "https://mcp.inboxapi.ai/mcp", global = true)]
     endpoint: String,
 
     /// Output human-readable text instead of JSON
@@ -7790,6 +7790,28 @@ mod tests {
 
         let cli =
             Cli::try_parse_from(["inboxapi", "verify-owner", "--owner_email", "a@b.com"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::VerifyOwner {
+                owner_email,
+                code: None
+            }) if owner_email == "a@b.com"
+        ));
+    }
+
+    #[test]
+    fn test_verify_owner_accepts_endpoint_after_subcommand() {
+        let cli = Cli::try_parse_from([
+            "inboxapi",
+            "verify-owner",
+            "--owner-email",
+            "a@b.com",
+            "--endpoint",
+            "http://127.0.0.1:9",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.endpoint, "http://127.0.0.1:9");
         assert!(matches!(
             cli.command,
             Some(Commands::VerifyOwner {
